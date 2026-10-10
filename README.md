@@ -6,7 +6,7 @@ framework.
 
 The long-term idea is to give the Voyage 200 some form of internet access, with
 the ESP32 doing the networking and the calculator acting as a terminal. This
-repo is the groundwork for that, not a finished product. It holds two
+repo is the groundwork for that, not a finished product. It holds three
 experiments:
 
 1. **ESP32 as a link partner.** The ESP32 takes part in the link, posing as a
@@ -15,20 +15,12 @@ experiments:
 2. **Calculator-to-calculator protocol.** The ESP32 listens passively between
    two Voyage 200s. A series of tests documents what they say to each other.
 
+3. **Calculator as a terminal.** A C program turns the Voyage 200 into a
+   60x21 text terminal, and the ESP32 carries the bytes to a real shell.
+   `vim` runs on it.
+
 Treat the protocol notes as findings from these calculators, not as a
 specification.
-
-A third experiment is under way: the calculator as a dumb terminal, with the
-ESP32 carrying the bytes to a real shell. So far the two ends exchange raw
-bytes, and the far end is the Serial Monitor:
-
-- `calc/term/` is the calculator program. Build it with `make` there (it
-  needs `tigcc` and `python3`), send `build/term.v2z` with TiLP and run
-  `term()`.
-- `esp32/esp32_tilink_term/` is the bridge sketch. A line typed in the Serial
-  Monitor appears on the calculator and keys pressed there appear in the
-  monitor. `/burst` sends a block of numbered lines and reports the speed,
-  `/stats` the byte and error counts, `/raw` switches to a transparent pipe.
 
 ## Repository layout
 
@@ -47,6 +39,9 @@ calc/                                C programs for the calculator (TIGCC / GCC4
   term/                              experiment 3: a 60x21 terminal on the link port
     term.c                             screen, VT100 subset, keyboard
     font.txt, mkfont.py                the 3x5 font, drawn as text, and its converter
+tools/
+  shell.py                           experiment 3: joins a shell on the computer to the ESP32's port
+Makefile                             shortcuts for experiment 3
 calc-to-calc-protocol-reversed/      experiment 2: documentation and data
   README.md                            sniffer wiring, flashing, running a capture session
   TESTS.md                             the test sequence (T00-T20)
@@ -104,6 +99,81 @@ All tests T00–T20 have been run. They cover:
 
 The open questions are listed at the end of PROTOCOL.md.
 
+## Experiment 3: the calculator as a terminal
+
+The calculator is a dumb terminal: it draws characters, reads keys and moves
+raw bytes over the link port. TI's packet protocol is not involved. The shell
+runs on the computer the ESP32 is plugged into; reaching one over Wi-Fi is
+the next step.
+
+```
+Voyage 200             ESP32                    computer
+calc/term  <- link ->  esp32_tilink_term  <- USB serial ->  tools/shell.py -> shell
+```
+
+- **`calc/term/`** is the calculator program (about 5 KB), built with
+  TIGCC / GCC4TI. It draws its own fixed-width 3x5 font, because the
+  calculator's small font is proportional. The glyphs are drawn as text in
+  `font.txt`. It handles the VT100 codes that shells and full-screen programs
+  use: cursor movement, erasing, reverse video, scroll regions, insert and
+  delete line.
+- **`esp32/esp32_tilink_term/`** bridges the link to Serial. In its monitor
+  mode a line typed in the Serial Monitor appears on the calculator, and
+  `/burst`, `/stats` and `/raw` test the link. In raw mode every byte passes
+  through untouched.
+- **`tools/shell.py`** runs a command on the computer in a 60x21 `vt100`
+  pseudo-terminal joined to the ESP32's port. It switches the sketch to raw
+  mode and back.
+
+### Running it
+
+Needs `tigcc`, `python3`, `tilp` and `arduino-cli` on the PATH. From the repo
+root:
+
+```sh
+make calc:term:send      # build term.v2z and send it (SilverLink cable)
+make esp32:term:flash    # compile and flash the bridge sketch
+make shell               # the login shell; or: make shell CMD=top
+```
+
+Move the calculator to the ESP32's pigtail and run `term()` before
+`make shell`. Close the Serial Monitor first: only one program can hold the
+ESP32's port. `make calc:term:build` only builds.
+
+### Keys
+
+| Key | Does |
+|---|---|
+| ◆ + letter | Ctrl + letter (the keyboard has no Ctrl key) |
+| 2nd + plus (CHAR) | a strip of symbols on the bottom row; a letter picks one |
+| F1 | test pattern, with the time a full screen takes |
+| F2 | switch between online and local echo |
+| F3 | show each key's code instead of sending it |
+| 2nd + ESC (QUIT) | quit |
+
+The divide key types `/`. The (−) negation key is a TI-only character and is
+dropped; use the subtraction key for `-`.
+
+### Findings
+
+- **Raw bytes work through AMS's own link queues.** After `OSLinkOpen`, the
+  OS keeps moving bytes between the port and its queues in the background,
+  and `OSWriteLinkBlock` / `OSReadLinkBlock` only touch the queues.
+- **`kbhit` and `ngetchx` must be avoided.** They also poll the link and
+  treat incoming bytes as TI packets. The program reads the keyboard queue
+  directly (`OSdequeue` on `kbd_queue()`).
+- **2nd + key arrives as 4096 + the key's code** when the combination is a
+  function rather than a character: 2nd + plus is 4139. The CHAR menu
+  belongs to AMS, hence the program's own symbol strip.
+- **The link held up in a burst test:** 7083 bytes to the calculator with
+  none dropped and no retries, and 127 bytes back from typing meanwhile.
+- **Collisions can lose a keystroke.** The link is half duplex. That test
+  logged one link error, most likely a key pressed while the ESP32 was
+  sending. If both ends start a byte at the same instant on different lines,
+  each can take the other's bit for an acknowledgement. Not fixed yet.
+- **An unplugged pigtail floats** and reads as a stream of garbage bytes, so
+  this sketch turns on the ESP32's internal pull-ups.
+
 ## Wiring check
 
 `esp32/esp32_tilink_linetest/` prints the tip and ring levels whenever they
@@ -121,8 +191,7 @@ They are in the git history, last present in commit `d4abde0`:
   using a custom frame format instead of TI's packets.
   - It needs a C program on the calculator (GCC4TI).
   - It was never tested end to end.
-  - A C program could transfer faster than BASIC's `Send`/`Get`, so this
-    route may be worth reviving.
+  - Experiment 3 took this route again, with raw bytes and no frames.
 - `arduino/ti_link_arduino/` with `calculator/tilink.c`: the first experiment,
   for an Arduino Uno/Nano.
 

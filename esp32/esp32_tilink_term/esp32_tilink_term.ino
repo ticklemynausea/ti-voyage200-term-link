@@ -13,6 +13,10 @@
  *   raw (after /raw)       every byte passes through untouched, both ways,
  *                          and nothing else is printed. Reset to leave it.
  *
+ * A program on the host (tools/shell.py) switches modes with a control
+ * line that works in either mode: three 0x1E bytes, then "raw" or "monitor",
+ * then a newline.
+ *
  * Serial Monitor: 115200 baud, newline line ending.
  * Needs TiLink.h / TiLink.cpp in the same folder.
  */
@@ -36,6 +40,12 @@ bool rawMode = false;
 bool linkDown = false;  // both lines held low: calculator off or half plugged
 uint32_t toCalc = 0, fromCalc = 0, dropped = 0, retries = 0;
 String line;
+
+// Control lines from the host: CONTROL_MARK three times, a word, a newline.
+const uint8_t CONTROL_MARK = 0x1E;
+uint8_t marksSeen = 0;
+bool inControlLine = false;
+String controlLine;
 
 // ---------- calculator -> Serial ----------
 
@@ -162,18 +172,45 @@ void setup() {
   Serial.println();
 }
 
+void handleControl(const String &word) {
+  if (word == "raw") rawMode = true;
+  else if (word == "monitor") rawMode = false;
+  line = "";
+}
+
+void handleSerialByte(char c) {
+  if (rawMode) {
+    sendToCalc((uint8_t)c);
+  } else if (c == '\n' || c == '\r') {
+    if (line.length()) handleLine(line);
+    line = "";
+  } else {
+    line += c;
+  }
+}
+
 void loop() {
   pumpFromCalc();
 
   while (Serial.available()) {
     char c = Serial.read();
-    if (rawMode) {
-      sendToCalc((uint8_t)c);
-    } else if (c == '\n' || c == '\r') {
-      if (line.length()) handleLine(line);
-      line = "";
+    if (inControlLine) {
+      if (c == '\n') {
+        handleControl(controlLine);
+        inControlLine = false;
+      } else if (controlLine.length() < 16) {
+        controlLine += c;
+      }
+    } else if ((uint8_t)c == CONTROL_MARK) {
+      if (++marksSeen == 3) {
+        marksSeen = 0;
+        inControlLine = true;
+        controlLine = "";
+      }
     } else {
-      line += c;
+      // Marks that turned out to be ordinary data are passed on.
+      for (; marksSeen; marksSeen--) handleSerialByte((char)CONTROL_MARK);
+      handleSerialByte(c);
     }
   }
 }

@@ -8,6 +8,8 @@
 //   diamond + letter   Ctrl + letter
 //   F1                 test pattern, with the time a full screen takes
 //   F2                 switch between online and local echo
+//   F3                 key codes: shows each key's code instead of sending it
+//   2nd + plus (CHAR)  symbols the keyboard lacks: pick one by its letter
 //   2nd + ESC (QUIT)   quit; diamond + ESC does the same
 
 #define USE_V200
@@ -84,16 +86,32 @@ static void clearRows(short row0, short row1)
     memset(cellAddr(0, row0), 0, (row1 - row0 + 1) * (CELL_H * LCD_ROW_BYTES));
 }
 
-static void scrollUp(void)
+// Scrolling happens inside the scroll region, which full-screen programs
+// narrow to keep a status line in place. It is the whole screen by default.
+static short regionTop, regionBottom = ROWS - 1;
+
+static void scrollUp(short top, short bottom)
 {
-  memmove(lcd, lcd + CELL_H * LCD_ROW_BYTES, TEXT_BYTES - CELL_H * LCD_ROW_BYTES);
-  clearRows(ROWS - 1, ROWS - 1);
+  memmove(cellAddr(0, top), cellAddr(0, top + 1), (bottom - top) * (CELL_H * LCD_ROW_BYTES));
+  clearRows(bottom, bottom);
+}
+
+static void scrollDown(short top, short bottom)
+{
+  memmove(cellAddr(0, top + 1), cellAddr(0, top), (bottom - top) * (CELL_H * LCD_ROW_BYTES));
+  clearRows(top, top);
 }
 
 static void lineFeed(void)
 {
-  if (curRow < ROWS - 1) curRow++;
-  else scrollUp();
+  if (curRow == regionBottom) scrollUp(regionTop, regionBottom);
+  else if (curRow < ROWS - 1) curRow++;
+}
+
+static void reverseLineFeed(void)
+{
+  if (curRow == regionTop) scrollDown(regionTop, regionBottom);
+  else if (curRow > 0) curRow--;
 }
 
 static short clamp(short v, short lo, short hi)
@@ -110,13 +128,15 @@ static void moveTo(short col, short row)
 
 // ---------- escape codes ----------
 
-enum { ST_TEXT, ST_ESC, ST_CSI, ST_SKIP };
+enum { ST_TEXT, ST_ESC, ST_CSI, ST_SKIP, ST_OSC, ST_OSC_ESC };
 
 #define MAX_PARAMS 4
 
 static short state;
 static short params[MAX_PARAMS];
 static short paramCount;
+static short privateSeq;  // the sequence began with '?', '>' or '<'
+static short savedCol, savedRow, savedReverse;
 
 static short param(short i, short dflt)
 {
@@ -153,6 +173,46 @@ static void setAttributes(void)
   }
 }
 
+static void setRegion(short top, short bottom)
+{
+  if (top < 0 || bottom > ROWS - 1 || top >= bottom) {
+    top = 0;
+    bottom = ROWS - 1;
+  }
+  regionTop = top;
+  regionBottom = bottom;
+  moveTo(0, 0);
+}
+
+// Inserts (dir > 0) or deletes blank lines at the cursor's row.
+static void shiftLines(short count, short dir)
+{
+  if (curRow < regionTop || curRow > regionBottom) return;
+  while (count-- > 0) {
+    if (dir > 0) scrollDown(curRow, regionBottom);
+    else scrollUp(curRow, regionBottom);
+  }
+}
+
+static void resetTerminal(void)
+{
+  reverse = 0;
+  setRegion(0, ROWS - 1);
+  clearRows(0, ROWS - 1);
+}
+
+static void escFinal(unsigned char c)
+{
+  switch (c) {
+    case 'D': lineFeed(); break;
+    case 'E': curCol = 0; wrapPending = 0; lineFeed(); break;
+    case 'M': reverseLineFeed(); break;
+    case '7': savedCol = curCol; savedRow = curRow; savedReverse = reverse; break;
+    case '8': moveTo(savedCol, savedRow); reverse = savedReverse; break;
+    case 'c': resetTerminal(); break;
+  }
+}
+
 static void csiFinal(unsigned char c)
 {
   switch (c) {
@@ -164,7 +224,10 @@ static void csiFinal(unsigned char c)
     case 'f': moveTo(param(1, 1) - 1, param(0, 1) - 1); break;
     case 'J': eraseDisplay(param(0, 0)); break;
     case 'K': eraseLine(param(0, 0)); break;
+    case 'L': shiftLines(param(0, 1), 1); break;
+    case 'M': shiftLines(param(0, 1), -1); break;
     case 'm': setAttributes(); break;
+    case 'r': setRegion(param(0, 1) - 1, param(1, ROWS) - 1); break;
   }
 }
 
@@ -200,12 +263,25 @@ static void termPutc(unsigned char c)
       if (c == '[') {
         state = ST_CSI;
         paramCount = 0;
+        privateSeq = 0;
         memset(params, 0, sizeof(params));
+      } else if (c == ']') {
+        state = ST_OSC;   // window title and the like: skipped whole
       } else if (c == '(' || c == ')') {
         state = ST_SKIP;  // character set selection: one more byte follows
       } else {
         state = ST_TEXT;
+        escFinal(c);
       }
+      break;
+
+    case ST_OSC:
+      if (c == 0x07) state = ST_TEXT;
+      else if (c == 0x1B) state = ST_OSC_ESC;
+      break;
+
+    case ST_OSC_ESC:
+      state = (c == '\\') ? ST_TEXT : ST_OSC;
       break;
 
     case ST_CSI:
@@ -218,10 +294,12 @@ static void termPutc(unsigned char c)
         if (paramCount <= MAX_PARAMS) paramCount++;
       } else if (c >= 0x40) {
         if (paramCount > MAX_PARAMS) paramCount = MAX_PARAMS;
-        csiFinal(c);
+        if (!privateSeq) csiFinal(c);
         state = ST_TEXT;
+      } else if (c >= '<') {
+        privateSeq = 1;  // a mode this terminal does not have
       }
-      // anything else ('?', '>', spaces) belongs to the sequence: ignore it
+      // anything else (spaces and such) belongs to the sequence: ignore it
       break;
 
     case ST_SKIP:
@@ -298,6 +376,33 @@ static void testPattern(void)
   termPuts(line);
 }
 
+static void *keyQueue;
+static short showKeyCodes;
+
+// Stands in for the calculator's CHAR menu. The bottom row lists the symbols,
+// each after the letter that picks it; any other key closes the menu.
+static void charMenu(void)
+{
+  static const char SYMBOLS[] = "~`|\\$%&#@_{}[]<>'\";:";
+  unsigned char saved[CELL_H * LCD_ROW_BYTES];
+  unsigned char *row = cellAddr(0, ROWS - 1);
+  unsigned short key;
+  short i;
+
+  hideCursor();
+  memcpy(saved, row, sizeof(saved));
+  for (i = 0; SYMBOLS[i]; i++) {
+    drawCell(i * 3, ROWS - 1, 'a' + i, 1);
+    drawCell(i * 3 + 1, ROWS - 1, SYMBOLS[i], 0);
+    drawCell(i * 3 + 2, ROWS - 1, ' ', 0);
+  }
+  while (OSdequeue(&key, keyQueue)) idle();
+  memcpy(row, saved, sizeof(saved));
+
+  if (key >= 'A' && key <= 'Z') key += 'a' - 'A';
+  if (key >= 'a' && key < 'a' + sizeof(SYMBOLS) - 1) hostSend(&SYMBOLS[key - 'a'], 1);
+}
+
 // Returns 0 when the key asks to quit.
 static short handleKey(short key)
 {
@@ -305,7 +410,21 @@ static short handleKey(short key)
 
   if (key == KEY_QUIT || key == KEY_DIAMOND + KEY_ESC) return 0;
 
-  if (key >= KEY_DIAMOND + '@' && key <= KEY_DIAMOND + '_') {
+  if (key == KEY_F3) {
+    showKeyCodes = !showKeyCodes;
+    termPuts(showKeyCodes ? "\r\n[key codes on, F3 to leave]\r\n" : "\r\n[key codes off]\r\n");
+    return 1;
+  }
+  if (showKeyCodes) {
+    char text[16];
+    sprintf(text, "%u ", (unsigned short)key);
+    termPuts(text);
+    return 1;
+  }
+
+  if (key == KEY_2ND + '+') {
+    charMenu();
+  } else if (key >= KEY_DIAMOND + '@' && key <= KEY_DIAMOND + '_') {
     c = key - KEY_DIAMOND - '@';
     hostSend(&c, 1);
   } else if (key >= KEY_DIAMOND + 'a' && key <= KEY_DIAMOND + 'z') {
@@ -340,16 +459,17 @@ static short handleKey(short key)
 
 void _main(void)
 {
-  // Keys are taken straight from the keyboard queue. kbhit and ngetchx would
-  // also poll the link and treat incoming bytes as TI packets.
-  void *keys = kbd_queue();
   char buf[64];
   unsigned short key;
   short n;
 
+  // Keys are taken straight from the keyboard queue. kbhit and ngetchx would
+  // also poll the link and treat incoming bytes as TI packets.
+  keyQueue = kbd_queue();
   memset(lcd, 0, LCD_SIZE);
   termPuts("Voyage 200 terminal\r\n");
-  termPuts("F1 test pattern, F2 local echo, 2nd+ESC quit\r\n\r\n");
+  termPuts("F1 test, F2 local echo, F3 key codes, 2nd+ESC quit\r\n");
+  termPuts("2nd + plus (CHAR): symbols such as ~ | \\ $\r\n\r\n");
 
   OSLinkReset();
   OSLinkOpen();
@@ -362,7 +482,7 @@ void _main(void)
       termWrite(buf, n);
       toggleCursor();
       OSTimerRestart(USER_TIMER);
-    } else if (!OSdequeue(&key, keys)) {
+    } else if (!OSdequeue(&key, keyQueue)) {
       if (!handleKey(key)) break;
       if (!cursorShown) toggleCursor();
       OSTimerRestart(USER_TIMER);
