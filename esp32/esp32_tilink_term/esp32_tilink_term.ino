@@ -17,6 +17,12 @@
  * line that works in either mode: three 0x1E bytes, then "raw" or "monitor",
  * then a newline.
  *
+ * Raw mode entered that way is paced. The link is far slower than USB, and
+ * the ESP32 drops serial bytes it has no room for, so the host may only have
+ * a small window of bytes outstanding. For every ACK_EVERY bytes passed on
+ * (or given up on) the sketch sends 0x1E 'a'. A real 0x1E from the calculator
+ * is sent twice.
+ *
  * Serial Monitor: 115200 baud, newline line ending.
  * Needs TiLink.h / TiLink.cpp in the same folder.
  */
@@ -47,11 +53,19 @@ uint8_t marksSeen = 0;
 bool inControlLine = false;
 String controlLine;
 
+// Pacing of raw mode, see the top of the file.
+const uint8_t ACK_EVERY = 32;
+bool paced = false;
+uint8_t unacked = 0;
+
 // ---------- calculator -> Serial ----------
 
 void forwardFromCalc(uint8_t b) {
   fromCalc++;
-  if (rawMode) Serial.write(b);
+  if (rawMode) {
+    if (paced && b == CONTROL_MARK) Serial.write(b);
+    Serial.write(b);
+  }
   else if (b == '\r') Serial.println();
   else if (b >= 32 && b < 127) Serial.write(b);
   else Serial.printf("\\x%02X", b);
@@ -155,6 +169,7 @@ void handleLine(const String &text) {
     Serial.println("Raw mode: every byte now passes through. Reset the ESP32 to leave it.");
     Serial.flush();
     rawMode = true;
+    paced = false;
   } else {
     Serial.println(HELP);
   }
@@ -163,6 +178,7 @@ void handleLine(const String &text) {
 // ---------- main ----------
 
 void setup() {
+  Serial.setRxBufferSize(1024);
   Serial.begin(115200);
   ti.begin();
   delay(500);
@@ -173,14 +189,20 @@ void setup() {
 }
 
 void handleControl(const String &word) {
-  if (word == "raw") rawMode = true;
-  else if (word == "monitor") rawMode = false;
+  if (word == "raw") rawMode = paced = true;
+  else if (word == "monitor") rawMode = paced = false;
+  unacked = 0;
   line = "";
 }
 
 void handleSerialByte(char c) {
   if (rawMode) {
     sendToCalc((uint8_t)c);
+    if (paced && ++unacked == ACK_EVERY) {
+      unacked = 0;
+      Serial.write(CONTROL_MARK);
+      Serial.write('a');
+    }
   } else if (c == '\n' || c == '\r') {
     if (line.length()) handleLine(line);
     line = "";

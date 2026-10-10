@@ -176,6 +176,11 @@ dropped; use the subtraction key for `-`.
   belongs to AMS, hence the program's own symbol strip.
 - **The link held up in a burst test:** 7083 bytes to the calculator with
   none dropped and no retries, and 127 bytes back from typing meanwhile.
+- **Serial output has to be paced.** The link carries about 3 KB/s, far
+  less than USB, and the ESP32 drops serial bytes it has no room for.
+  Programs that repaint the whole screen then lost part of their output.
+  `tools/shell.py` keeps at most 128 bytes outstanding and the sketch
+  acknowledges every 32 it has passed on.
 - **Collisions can lose a keystroke.** The link is half duplex. That test
   logged one link error, most likely a key pressed while the ESP32 was
   sending. If both ends start a byte at the same instant on different lines,

@@ -24,8 +24,16 @@ import sys
 import termios
 
 COLS, ROWS = 60, 21
-CONTROL = b"\x1e\x1e\x1e"
-MAX_QUEUE = 4096  # bytes waiting for the ESP32 before the shell is paused
+MARK = 0x1E
+CONTROL = bytes([MARK] * 3)
+MAX_QUEUE = 512  # bytes waiting for the ESP32 before the command is paused
+
+# The link is far slower than USB and the ESP32 drops serial bytes it has no
+# room for. So at most WINDOW bytes are outstanding; the ESP32 answers every
+# ACK_EVERY bytes it has dealt with by sending MARK 'a'. A real MARK byte from
+# the calculator arrives doubled.
+WINDOW = 128
+ACK_EVERY = 32
 
 
 def open_serial(path):
@@ -75,24 +83,42 @@ def main():
 
     print(f"{' '.join(command)} is running on the calculator via {port}. Ctrl-C here to stop.")
     to_calc = b""
+    in_flight = 2  # the reset sequence sent above
+    after_mark = False
+    exited = False  # the command is gone; what is queued still has to go out
     try:
-        while True:
-            readers = [serial] + ([master] if len(to_calc) < MAX_QUEUE else [])
-            readable, writable, _ = select.select(readers, [serial] if to_calc else [], [])
+        while not (exited and not to_calc):
+            readers = [serial] + ([master] if not exited and len(to_calc) < MAX_QUEUE else [])
+            may_send = to_calc and in_flight < WINDOW
+            readable, writable, _ = select.select(readers, [serial] if may_send else [], [])
             if serial in readable:
-                write_all(master, os.read(serial, 1024))
+                keys = bytearray()
+                for byte in os.read(serial, 1024):
+                    if after_mark:
+                        after_mark = False
+                        if byte == MARK:
+                            keys.append(byte)
+                        elif byte == ord("a"):
+                            in_flight = max(0, in_flight - ACK_EVERY)
+                    elif byte == MARK:
+                        after_mark = True
+                    else:
+                        keys.append(byte)
+                if keys and not exited:
+                    write_all(master, bytes(keys))
             if master in readable:
                 try:
                     data = os.read(master, 1024)
                 except OSError:  # the command exited
-                    break
-                if not data:
-                    break
+                    data = b""
+                exited = not data
                 to_calc += data
                 if args.mirror:
                     os.write(1, data)
             if serial in writable:
-                to_calc = to_calc[os.write(serial, to_calc):]
+                sent = os.write(serial, to_calc[:WINDOW - in_flight])
+                to_calc = to_calc[sent:]
+                in_flight += sent
     except KeyboardInterrupt:
         pass
     finally:
