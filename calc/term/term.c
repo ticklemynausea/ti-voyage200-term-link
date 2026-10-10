@@ -2,17 +2,15 @@
 //
 // 60 x 21 characters in a 4x6 cell, with a subset of the VT220 escape codes.
 // Keys go out of the link port as raw bytes, and whatever comes in is drawn.
-// The other end is the ESP32 running esp32/esp32_tilink_term.
+// The other end is the ESP32 running esp32/esp32_tilink_term, which the menu
+// tells where to carry the bytes: to its USB serial port or to an SSH host.
 //
-// Keys:
+// Keys in a session:
 //   diamond + letter   Ctrl + letter
 //   diamond + up/down  Page Up / Page Down
 //   2nd + up/down      Home / End (2nd + left/right too)
-//   F1                 test pattern, with the time a full screen takes
-//   F2                 switch between online and local echo
-//   F3                 key codes: shows each key's code instead of sending it
 //   2nd + plus (CHAR)  symbols the keyboard lacks: pick one by its letter
-//   2nd + ESC (QUIT)   quit; diamond + ESC does the same
+//   2nd + ESC (QUIT)   back to the menu; diamond + ESC does the same
 
 #define USE_V200
 #define MIN_AMS 207
@@ -401,60 +399,55 @@ static void termPuts(const char *s)
 // The link is interrupt driven: AMS moves bytes between the port and its
 // transmit and receive queues in the background, and these calls only touch
 // the queues. Nothing here uses TI's packet protocol.
+//
+// A session starts by telling the ESP32 where the bytes should go, with LINK_MARK
+// and a letter, and ends with LINK_MARK 'x'. A real LINK_MARK byte is sent twice.
 
-static short online = 1;
+#define LINK_MARK 0x1E
 
-// Sends bytes towards the host. In local mode it echoes them the way a shell
-// would, so the terminal can be tried on its own.
+enum { MODE_SERIAL, MODE_SSH, MODE_SETTINGS, MODE_LOCAL, MODE_KEY_CODES };
+
+static short online;  // the session's bytes go out of the link
+
+static void linkCommand(char letter)
+{
+  char command[2];
+  command[0] = LINK_MARK;
+  command[1] = letter;
+  OSWriteLinkBlock(command, 2);
+}
+
+// Sends bytes towards the host. In a local session it echoes them the way a
+// shell would, so the terminal can be tried on its own.
 static void hostSend(const char *s, short len)
 {
-  if (online) {
-    // Fails when the transmit queue is full (nobody is listening): the keys
-    // are dropped rather than left to pile up.
-    OSWriteLinkBlock(s, len);
-    return;
-  }
   while (len--) {
     char c = *s++;
-    if (c == '\r') termPuts("\r\n");
-    else if (c == 0x7F) termPuts("\b \b");
-    else termWrite(&c, 1);
+    if (online) {
+      // Fails when the transmit queue is full (nobody is listening): the
+      // keys are dropped rather than left to pile up.
+      if (c == LINK_MARK) OSWriteLinkBlock(&c, 1);
+      OSWriteLinkBlock(&c, 1);
+    } else if (c == '\r') {
+      termPuts("\r\n");
+    } else if (c == 0x7F) {
+      termPuts("\b \b");
+    } else {
+      termWrite(&c, 1);
+    }
   }
 }
 
 // ---------- keyboard ----------
 
-static void testPattern(void)
-{
-  char line[COLS + 1];
-  unsigned long t0, ticks;
-  short i;
-
-  termPuts("\x1B[2J\x1B[H");
-  t0 = FiftyMsecTick;
-  for (i = 0; i < COLS * ROWS; i++) {
-    char c = ' ' + i % 95;
-    termWrite(&c, 1);
-  }
-  ticks = FiftyMsecTick - t0;
-
-  termPuts("\x1B[2J\x1B[H");
-  termPuts("normal \x1B[7mreverse\x1B[0m normal\r\n");
-  termPuts("tabs:\tA\tB\tC\r\n");
-  termPuts("erase to end of line -->XXXXXXXX\x1B[8D\x1B[K\r\n");
-  termPuts("\x1B[10;20Hrow 10, column 20");
-  termPuts("\x1B[21;1Hbottom row\x1B[1;50Htop right");
-  termPuts("\x1B[12;1H");
-  for (i = 0; i < COLS + 10; i++) {
-    char c = '0' + i % 10;
-    termWrite(&c, 1);
-  }
-  sprintf(line, "\r\nfull screen (%d chars): %lu ms\r\n", COLS * ROWS, ticks * 50);
-  termPuts(line);
-}
-
 static void *keyQueue;
-static short showKeyCodes;
+
+static unsigned short waitKey(void)
+{
+  unsigned short key;
+  while (OSdequeue(&key, keyQueue)) idle();
+  return key;
+}
 
 // Stands in for the calculator's CHAR menu. The bottom row lists the symbols,
 // each after the letter that picks it; any other key closes the menu.
@@ -473,7 +466,7 @@ static void charMenu(void)
     drawCell(i * 3 + 1, ROWS - 1, SYMBOLS[i], 0);
     drawCell(i * 3 + 2, ROWS - 1, ' ', 0);
   }
-  while (OSdequeue(&key, keyQueue)) idle();
+  key = waitKey();
   memcpy(row, saved, sizeof(saved));
 
   if (key >= 'A' && key <= 'Z') key += 'a' - 'A';
@@ -489,24 +482,18 @@ static void sendArrow(char letter)
   hostSend(code, 3);
 }
 
-// Returns 0 when the key asks to quit.
-static short handleKey(short key)
+static short isQuitKey(unsigned short key)
 {
+  return key == KEY_QUIT || key == KEY_DIAMOND + KEY_ESC;
+}
+
+static void handleKey(unsigned short key)
+{
+  // F1 to F8 as a VT220 sends them (it has no F5; that code is xterm's).
+  static const char *const FUNCTION_KEYS[] = {
+    "\x1BOP", "\x1BOQ", "\x1BOR", "\x1BOS", "\x1B[15~", "\x1B[17~", "\x1B[18~", "\x1B[19~"
+  };
   char c;
-
-  if (key == KEY_QUIT || key == KEY_DIAMOND + KEY_ESC) return 0;
-
-  if (key == KEY_F3) {
-    showKeyCodes = !showKeyCodes;
-    termPuts(showKeyCodes ? "\r\n[key codes on, F3 to leave]\r\n" : "\r\n[key codes off]\r\n");
-    return 1;
-  }
-  if (showKeyCodes) {
-    char text[16];
-    sprintf(text, "%u ", (unsigned short)key);
-    termPuts(text);
-    return 1;
-  }
 
   if (key == KEY_2ND + '+') {
     charMenu();
@@ -538,46 +525,53 @@ static short handleKey(short key)
     sendArrow('C');
   } else if (key == KEY_LEFT) {
     sendArrow('D');
-  } else if (key == KEY_F1) {
-    testPattern();
-  } else if (key == KEY_F2) {
-    online = !online;
-    OSLinkOpen();  // drops whatever is still queued
-    termPuts(online ? "\r\n[online]\r\n" : "\r\n[local echo]\r\n");
+  } else if (key >= KEY_F1 && key <= KEY_F8) {
+    const char *code = FUNCTION_KEYS[key - KEY_F1];
+    hostSend(code, strlen(code));
   } else if (key >= 32 && key < 127) {
     c = key;
     hostSend(&c, 1);
   }
-  return 1;
 }
 
-void _main(void)
+// ---------- sessions ----------
+
+// Runs until the quit key. Serial, SSH and Settings sessions go through the
+// link (the ESP32 runs the settings dialog); the local ones draw what is
+// typed, or each key's code.
+static void session(short mode)
 {
   char buf[64];
   unsigned short key;
   short n;
 
-  // Keys are taken straight from the keyboard queue. kbhit and ngetchx would
-  // also poll the link and treat incoming bytes as TI packets.
-  keyQueue = kbd_queue();
-  memset(lcd, 0, LCD_SIZE);
-  termPuts("Voyage 200 terminal, built " __DATE__ " " __TIME__ "\r\n");
-  termPuts("F1 test, F2 local echo, F3 key codes, 2nd+ESC quit\r\n");
-  termPuts("2nd + plus (CHAR): symbols such as ~ | \\ $\r\n\r\n");
+  online = (mode == MODE_SERIAL || mode == MODE_SSH || mode == MODE_SETTINGS);
+  termPuts("\x1B" "c");
+  if (mode == MODE_LOCAL) termPuts("[local echo, 2nd+ESC for the menu]\r\n");
+  if (mode == MODE_KEY_CODES) termPuts("[key codes, 2nd+ESC for the menu]\r\n");
 
-  OSLinkReset();
-  OSLinkOpen();
-  OSFreeTimer(USER_TIMER);
+  if (online) {
+    OSLinkOpen();  // drops whatever is still queued
+    linkCommand(mode == MODE_SSH ? 'h' : (mode == MODE_SETTINGS ? 'c' : 's'));
+    // Ctrl-L: a shell that is already waiting redraws its prompt.
+    if (mode == MODE_SERIAL) hostSend("\x0C", 1);
+  }
   OSRegisterTimer(USER_TIMER, BLINK_TICKS);
 
   for (;;) {
-    n = OSReadLinkBlock(buf, sizeof(buf));
-    if (n > 0 && online) {
+    n = online ? OSReadLinkBlock(buf, sizeof(buf)) : 0;
+    if (n > 0) {
       termWrite(buf, n);
       toggleCursor();
       OSTimerRestart(USER_TIMER);
     } else if (!OSdequeue(&key, keyQueue)) {
-      if (!handleKey(key)) break;
+      if (isQuitKey(key)) break;
+      if (mode == MODE_KEY_CODES) {
+        sprintf(buf, "%u ", key);
+        termPuts(buf);
+      } else {
+        handleKey(key);
+      }
       if (!cursorShown) toggleCursor();
       OSTimerRestart(USER_TIMER);
     } else if (OSTimerExpired(USER_TIMER)) {
@@ -589,5 +583,90 @@ void _main(void)
   }
 
   OSFreeTimer(USER_TIMER);
+  if (online) linkCommand('x');
+  online = 0;
+}
+
+static void testPattern(void)
+{
+  char line[COLS + 1];
+  unsigned long t0, ticks;
+  short i;
+
+  termPuts("\x1B" "c");
+  t0 = FiftyMsecTick;
+  for (i = 0; i < COLS * ROWS; i++) {
+    char c = ' ' + i % 95;
+    termWrite(&c, 1);
+  }
+  ticks = FiftyMsecTick - t0;
+
+  termPuts("\x1B[2J\x1B[H");
+  termPuts("normal \x1B[7mreverse\x1B[0m normal\r\n");
+  termPuts("tabs:\tA\tB\tC\r\n");
+  termPuts("erase to end of line -->XXXXXXXX\x1B[8D\x1B[K\r\n");
+  termPuts("\x1B[10;20Hrow 10, column 20");
+  termPuts("\x1B[21;1Hany key for the menu\x1B[1;50Htop right");
+  termPuts("\x1B[12;1H");
+  for (i = 0; i < COLS + 10; i++) {
+    char c = '0' + i % 10;
+    termWrite(&c, 1);
+  }
+  sprintf(line, "\r\nfull screen (%d chars): %lu ms\r\n", COLS * ROWS, ticks * 50);
+  termPuts(line);
+  waitKey();
+}
+
+// Returns 0 when the choice is to leave the program.
+static short menu(void)
+{
+  char discard[64];
+  unsigned short key;
+
+  termPuts("\x1B" "c");
+  termPuts("Voyage 200 terminal, built " __DATE__ " " __TIME__ "\r\n\r\n");
+  termPuts("  \x1B[7m F1 \x1B[0m  Serial        a shell on the computer, over USB\r\n\r\n");
+  termPuts("  \x1B[7m F2 \x1B[0m  SSH           over the ESP32's Wi-Fi\r\n\r\n");
+  termPuts("  \x1B[7m F3 \x1B[0m  Settings      Wi-Fi network, SSH host and user\r\n\r\n");
+  termPuts("  \x1B[7m F4 \x1B[0m  Local echo    nothing leaves the calculator\r\n\r\n");
+  termPuts("  \x1B[7m F5 \x1B[0m  Test pattern\r\n\r\n");
+  termPuts("  \x1B[7m F6 \x1B[0m  Key codes\r\n\r\n");
+  termPuts("  \x1B[7m ESC \x1B[0m Exit\r\n\r\n");
+  termPuts("In a session: 2nd+ESC returns here, 2nd+plus lists symbols,\r\n");
+  termPuts("diamond+letter is Ctrl, diamond+up/down pages.");
+
+  for (;;) {
+    // Whatever arrives outside a session belongs to nobody.
+    while (OSReadLinkBlock(discard, sizeof(discard)) > 0) { }
+    if (OSdequeue(&key, keyQueue)) {
+      idle();
+      continue;
+    }
+    switch (key) {
+      case KEY_F1: session(MODE_SERIAL); return 1;
+      case KEY_F2: session(MODE_SSH); return 1;
+      case KEY_F3: session(MODE_SETTINGS); return 1;
+      case KEY_F4: session(MODE_LOCAL); return 1;
+      case KEY_F5: testPattern(); return 1;
+      case KEY_F6: session(MODE_KEY_CODES); return 1;
+      case KEY_ESC: return 0;
+    }
+    if (isQuitKey(key)) return 0;
+  }
+}
+
+void _main(void)
+{
+  // Keys are taken straight from the keyboard queue. kbhit and ngetchx would
+  // also poll the link and treat incoming bytes as TI packets.
+  keyQueue = kbd_queue();
+  memset(lcd, 0, LCD_SIZE);
+
+  OSLinkReset();
+  OSLinkOpen();
+  OSFreeTimer(USER_TIMER);
+
+  while (menu()) { }
+
   OSLinkReset();  // leave nothing behind for AMS to read as a packet
 }

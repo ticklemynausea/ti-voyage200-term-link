@@ -16,8 +16,8 @@ experiments:
    two Voyage 200s. A series of tests documents what they say to each other.
 
 3. **Calculator as a terminal.** A C program turns the Voyage 200 into a
-   60x21 text terminal, and the ESP32 carries the bytes to a real shell.
-   `vim` runs on it.
+   60x21 text terminal, and the ESP32 carries the bytes to a real shell,
+   over USB or over Wi-Fi with SSH. `vim` runs on it.
 
 Treat the protocol notes as findings from these calculators, not as a
 specification.
@@ -32,11 +32,11 @@ esp32/                               Arduino sketches (one folder per sketch)
   esp32_tilink_c2c/                  experiment 2: passive sniffer between two calculators
     esp32_tilink_c2c.ino               sampler, packet printer, line history, Serial commands
     BitDecoder.h                       passive bit decoder (plain C++, testable on a PC)
-  esp32_tilink_term/                 experiment 3: raw-byte bridge between Serial and calc/term
+  esp32_tilink_term/                 experiment 3: carries calc/term's bytes to Serial or SSH
   esp32_tilink_linetest/             wiring check: prints tip/ring levels without driving them
 calc/                                C programs for the calculator (TIGCC / GCC4TI)
   hello/                             hello world; the build and send pattern
-  term/                              experiment 3: a 60x21 terminal on the link port
+  term/                              experiment 3: a 60x21 terminal on the link port, with a menu
     term.c                             screen, VT220 subset, keyboard
     font.txt, mkfont.py                the 3x5 font, drawn as text, and its converter
 tools/
@@ -102,46 +102,70 @@ The open questions are listed at the end of PROTOCOL.md.
 ## Experiment 3: the calculator as a terminal
 
 The calculator is a dumb terminal: it draws characters, reads keys and moves
-raw bytes over the link port. TI's packet protocol is not involved. The shell
-runs on the computer the ESP32 is plugged into; reaching one over Wi-Fi is
-the next step.
+raw bytes over the link port. TI's packet protocol is not involved. The ESP32
+carries the bytes to a shell, either on the computer it is plugged into or on
+any host it can reach by SSH over Wi-Fi.
 
 ```
-Voyage 200             ESP32                    computer
+Voyage 200             ESP32
 calc/term  <- link ->  esp32_tilink_term  <- USB serial ->  tools/shell.py -> shell
+                                          <- Wi-Fi, SSH ->  a shell on another host
 ```
 
-- **`calc/term/`** is the calculator program (about 5 KB), built with
-  TIGCC / GCC4TI. It draws its own fixed-width 3x5 font, because the
-  calculator's small font is proportional. The glyphs are drawn as text in
-  `font.txt`. It handles the VT220 codes that shells and full-screen programs
-  use: cursor movement, erasing, reverse video, scroll regions, inserting
-  and deleting lines and characters. Line-drawing characters come out as
-  `+`, `-` and `|`.
-- **`esp32/esp32_tilink_term/`** bridges the link to Serial. In its monitor
-  mode a line typed in the Serial Monitor appears on the calculator, and
-  `/burst`, `/stats` and `/raw` test the link. In raw mode every byte passes
-  through untouched.
+- **`calc/term/`** is the calculator program (about 7 KB), built with
+  TIGCC / GCC4TI. It opens on a menu that picks where the session goes. It
+  draws its own fixed-width 3x5 font, because the calculator's small font is
+  proportional. The glyphs are drawn as text in `font.txt`. It handles the
+  VT220 codes that shells and full-screen programs use: cursor movement,
+  erasing, reverse video, scroll regions, inserting and deleting lines and
+  characters. Line-drawing characters come out as `+`, `-` and `|`.
+- **`esp32/esp32_tilink_term/`** carries the bytes to the backend the menu
+  chose. `Ssh.h` / `Ssh.cpp` hold the SSH side, on the LibSSH-ESP32 library.
+  On the serial side, its monitor mode shows what the calculator sends, and
+  `/burst`, `/stats` and `/raw` test the link.
 - **`tools/shell.py`** runs a command on the computer in a 60x21 `vt220`
-  pseudo-terminal joined to the ESP32's port. It switches the sketch to raw
-  mode and back.
+  pseudo-terminal joined to the ESP32's port, for the menu's Serial entry.
 
 ### Running it
 
-Needs `tigcc`, `python3`, `tilp` and `arduino-cli` on the PATH. From the repo
-root:
+Needs `tigcc`, `python3`, `tilp` and `arduino-cli` on the PATH, and the SSH
+library once: `arduino-cli lib install LibSSH-ESP32`. From the repo root:
 
 ```sh
 make calc:term:send      # build term.v2z and send it (SilverLink cable)
 make esp32:term:flash    # compile and flash the bridge sketch
-make shell               # the login shell; or: make shell CMD=top
+make shell               # for the Serial entry: the login shell; or: make shell CMD=top
 ```
 
-Move the calculator to the ESP32's pigtail and run `term()` before
-`make shell`. Close the Serial Monitor first: only one program can hold the
-ESP32's port. `make calc:term:build` only builds.
+Move the calculator to the ESP32's pigtail and run `term()`. The menu:
 
-### Keys
+| Key | Entry |
+|---|---|
+| F1 | Serial: the shell that `make shell` runs on the computer |
+| F2 | SSH: a shell on the host in the settings, over Wi-Fi |
+| F3 | Settings: the Wi-Fi network, the SSH host and the user |
+| F4 | Local echo: nothing leaves the calculator |
+| F5 | Test pattern, with the time a full screen takes |
+| F6 | Key codes: shows each key's code |
+| ESC | Exit |
+
+`make shell` can be started before or after choosing Serial: its output
+waits until the calculator is in that session. Close the Serial Monitor
+first: only one program can hold the ESP32's port.
+
+For SSH, choose Settings first. The ESP32 lists the Wi-Fi networks it sees
+and asks for the network (by number or name), its password, the SSH host
+(`host` or `host:port`) and the user. They are stored in the ESP32's flash
+(the Preferences library), so they survive power cycles and reflashing, and
+the Wi-Fi password is readable there by anyone holding the board. The SSH
+password is asked for at every connection and never stored. `/settings` in
+the Serial Monitor shows what is stored, without the password.
+
+The host's key is remembered at the first connection and checked
+afterwards; if it changes, the connection is refused until `/forgethost` is
+typed in the Serial Monitor.
+
+### Keys in a session
 
 | Key | Does |
 |---|---|
@@ -149,13 +173,11 @@ ESP32's port. `make calc:term:build` only builds.
 | ◆ + up / down | Page Up / Page Down |
 | 2nd + up / down | Home / End (2nd + left / right too) |
 | 2nd + plus (CHAR) | a strip of symbols on the bottom row; a letter picks one |
-| F1 | test pattern, with the time a full screen takes |
-| F2 | switch between online and local echo |
-| F3 | show each key's code instead of sending it |
-| 2nd + ESC (QUIT) | quit |
+| F1 to F8 | the function keys |
+| 2nd + ESC (QUIT) | back to the menu |
 
 Home and End work in the shell and in vim, but not in `less`: use `g` and
-`G` there. The startup banner shows when the program was built, which tells
+`G` there. The menu's first line shows when the program was built, which tells
 whether the calculator has the latest copy.
 
 The divide key types `/`. The (−) negation key is a TI-only character and is
