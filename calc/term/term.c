@@ -1,11 +1,13 @@
 // A dumb terminal for the TI Voyage 200, built with TIGCC / GCC4TI.
 //
-// 60 x 21 characters in a 4x6 cell, with a subset of the VT100 escape codes.
+// 60 x 21 characters in a 4x6 cell, with a subset of the VT220 escape codes.
 // Keys go out of the link port as raw bytes, and whatever comes in is drawn.
 // The other end is the ESP32 running esp32/esp32_tilink_term.
 //
 // Keys:
 //   diamond + letter   Ctrl + letter
+//   diamond + up/down  Page Up / Page Down
+//   2nd + up/down      Home / End (2nd + left/right too)
 //   F1                 test pattern, with the time a full screen takes
 //   F2                 switch between online and local echo
 //   F3                 key codes: shows each key's code instead of sending it
@@ -59,14 +61,30 @@ static void drawCell(short col, short row, unsigned char ch, short rev)
   }
 }
 
+static short cursorHidden;  // the program asked for no cursor
+
 static void toggleCursor(void)
 {
-  unsigned char *p = cellAddr(curCol, curRow);
+  unsigned char *p;
   unsigned char mask = (curCol & 1) ? 0x0F : 0xF0;
   short y;
 
+  if (cursorHidden && !cursorShown) return;
+  p = cellAddr(curCol, curRow);
   for (y = 0; y < CELL_H; y++, p += LCD_ROW_BYTES) *p ^= mask;
   cursorShown = !cursorShown;
+}
+
+static void copyCell(short dst, short src, short row)
+{
+  unsigned char *d = cellAddr(dst, row);
+  unsigned char *s = cellAddr(src, row);
+  short dShift = (dst & 1) ? 0 : 4;
+  short sShift = (src & 1) ? 0 : 4;
+  short y;
+
+  for (y = 0; y < CELL_H; y++, d += LCD_ROW_BYTES, s += LCD_ROW_BYTES)
+    *d = (*d & ~(0xF << dShift)) | (((*s >> sShift) & 0xF) << dShift);
 }
 
 static void hideCursor(void)
@@ -78,6 +96,24 @@ static void clearCells(short col0, short col1, short row)
 {
   short col;
   for (col = col0; col <= col1; col++) drawCell(col, row, ' ', 0);
+}
+
+// Shifts the rest of the cursor's line right, opening blank cells.
+static void insertChars(short count)
+{
+  short col;
+  if (count > COLS - curCol) count = COLS - curCol;
+  for (col = COLS - 1; col - count >= curCol; col--) copyCell(col, col - count, curRow);
+  clearCells(curCol, curCol + count - 1, curRow);
+}
+
+// Shifts the rest of the cursor's line left over the deleted cells.
+static void deleteChars(short count)
+{
+  short col;
+  if (count > COLS - curCol) count = COLS - curCol;
+  for (col = curCol; col + count < COLS; col++) copyCell(col, col + count, curRow);
+  clearCells(COLS - count, COLS - 1, curRow);
 }
 
 static void clearRows(short row0, short row1)
@@ -136,7 +172,14 @@ static short state;
 static short params[MAX_PARAMS];
 static short paramCount;
 static short privateSeq;  // the sequence began with '?', '>' or '<'
+static short escIntermediate;
+static short insertMode;   // typed characters push the rest of the line right
+static short lineDrawing;  // the line-drawing character set is selected
 static short savedCol, savedRow, savedReverse;
+
+// Programs such as less switch the arrow keys to "application" codes
+// (ESC O A instead of ESC [ A) and then only understand those.
+static short appCursorKeys;
 
 static short param(short i, short dflt)
 {
@@ -197,6 +240,10 @@ static void shiftLines(short count, short dir)
 static void resetTerminal(void)
 {
   reverse = 0;
+  appCursorKeys = 0;
+  cursorHidden = 0;
+  insertMode = 0;
+  lineDrawing = 0;
   setRegion(0, ROWS - 1);
   clearRows(0, ROWS - 1);
 }
@@ -213,6 +260,23 @@ static void escFinal(unsigned char c)
   }
 }
 
+// Private modes kept: 1, the arrow keys' codes, and 25, the cursor.
+static void setPrivateMode(short on)
+{
+  short i;
+  for (i = 0; i < paramCount; i++) {
+    if (params[i] == 1) appCursorKeys = on;
+    else if (params[i] == 25) cursorHidden = !on;
+  }
+}
+
+static void setMode(short on)
+{
+  short i;
+  for (i = 0; i < paramCount; i++)
+    if (params[i] == 4) insertMode = on;
+}
+
 static void csiFinal(unsigned char c)
 {
   switch (c) {
@@ -224,6 +288,11 @@ static void csiFinal(unsigned char c)
     case 'f': moveTo(param(1, 1) - 1, param(0, 1) - 1); break;
     case 'J': eraseDisplay(param(0, 0)); break;
     case 'K': eraseLine(param(0, 0)); break;
+    case '@': insertChars(param(0, 1)); break;
+    case 'P': deleteChars(param(0, 1)); break;
+    case 'X': clearCells(curCol, clamp(curCol + param(0, 1) - 1, curCol, COLS - 1), curRow); break;
+    case 'h': setMode(1); break;
+    case 'l': setMode(0); break;
     case 'L': shiftLines(param(0, 1), 1); break;
     case 'M': shiftLines(param(0, 1), -1); break;
     case 'm': setAttributes(); break;
@@ -242,11 +311,16 @@ static void putText(unsigned char c)
   }
   if (c < 32) return;
 
+  // Boxes are drawn with the nearest plain characters.
+  if (lineDrawing && c >= 0x60 && c <= 0x7E)
+    c = "+#    o+##+++++---__++++|<>*!f."[c - 0x60];
+
   if (wrapPending) {
     curCol = 0;
     wrapPending = 0;
     lineFeed();
   }
+  if (insertMode) insertChars(1);
   drawCell(curCol, curRow, c, reverse);
   if (curCol < COLS - 1) curCol++;
   else wrapPending = 1;
@@ -267,8 +341,9 @@ static void termPutc(unsigned char c)
         memset(params, 0, sizeof(params));
       } else if (c == ']') {
         state = ST_OSC;   // window title and the like: skipped whole
-      } else if (c == '(' || c == ')') {
-        state = ST_SKIP;  // character set selection: one more byte follows
+      } else if (c >= 0x20 && c <= 0x2F) {
+        state = ST_SKIP;  // character set selection and such: one more byte
+        escIntermediate = c;
       } else {
         state = ST_TEXT;
         escFinal(c);
@@ -295,6 +370,7 @@ static void termPutc(unsigned char c)
       } else if (c >= 0x40) {
         if (paramCount > MAX_PARAMS) paramCount = MAX_PARAMS;
         if (!privateSeq) csiFinal(c);
+        else if (c == 'h' || c == 'l') setPrivateMode(c == 'h');
         state = ST_TEXT;
       } else if (c >= '<') {
         privateSeq = 1;  // a mode this terminal does not have
@@ -303,6 +379,7 @@ static void termPutc(unsigned char c)
       break;
 
     case ST_SKIP:
+      if (escIntermediate == '(') lineDrawing = (c == '0');
       state = ST_TEXT;
       break;
   }
@@ -403,6 +480,15 @@ static void charMenu(void)
   if (key >= 'a' && key < 'a' + sizeof(SYMBOLS) - 1) hostSend(&SYMBOLS[key - 'a'], 1);
 }
 
+static void sendArrow(char letter)
+{
+  char code[3];
+  code[0] = 0x1B;
+  code[1] = (appCursorKeys && online) ? 'O' : '[';
+  code[2] = letter;
+  hostSend(code, 3);
+}
+
 // Returns 0 when the key asks to quit.
 static short handleKey(short key)
 {
@@ -436,14 +522,22 @@ static short handleKey(short key)
     hostSend("\x7F", 1);
   } else if (key == KEY_ESC) {
     hostSend("\x1B", 1);
+  } else if (key == KEY_DIAMOND + KEY_UP) {
+    hostSend("\x1B[5~", 4);
+  } else if (key == KEY_DIAMOND + KEY_DOWN) {
+    hostSend("\x1B[6~", 4);
+  } else if (key == KEY_2ND + KEY_UP || key == KEY_2ND + KEY_LEFT) {
+    sendArrow('H');  // Home and End use the arrow keys' code family
+  } else if (key == KEY_2ND + KEY_DOWN || key == KEY_2ND + KEY_RIGHT) {
+    sendArrow('F');
   } else if (key == KEY_UP) {
-    hostSend("\x1B[A", 3);
+    sendArrow('A');
   } else if (key == KEY_DOWN) {
-    hostSend("\x1B[B", 3);
+    sendArrow('B');
   } else if (key == KEY_RIGHT) {
-    hostSend("\x1B[C", 3);
+    sendArrow('C');
   } else if (key == KEY_LEFT) {
-    hostSend("\x1B[D", 3);
+    sendArrow('D');
   } else if (key == KEY_F1) {
     testPattern();
   } else if (key == KEY_F2) {
@@ -467,7 +561,7 @@ void _main(void)
   // also poll the link and treat incoming bytes as TI packets.
   keyQueue = kbd_queue();
   memset(lcd, 0, LCD_SIZE);
-  termPuts("Voyage 200 terminal\r\n");
+  termPuts("Voyage 200 terminal, built " __DATE__ " " __TIME__ "\r\n");
   termPuts("F1 test, F2 local echo, F3 key codes, 2nd+ESC quit\r\n");
   termPuts("2nd + plus (CHAR): symbols such as ~ | \\ $\r\n\r\n");
 

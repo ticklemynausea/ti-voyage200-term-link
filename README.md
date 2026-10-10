@@ -37,7 +37,7 @@ esp32/                               Arduino sketches (one folder per sketch)
 calc/                                C programs for the calculator (TIGCC / GCC4TI)
   hello/                             hello world; the build and send pattern
   term/                              experiment 3: a 60x21 terminal on the link port
-    term.c                             screen, VT100 subset, keyboard
+    term.c                             screen, VT220 subset, keyboard
     font.txt, mkfont.py                the 3x5 font, drawn as text, and its converter
 tools/
   shell.py                           experiment 3: joins a shell on the computer to the ESP32's port
@@ -114,14 +114,15 @@ calc/term  <- link ->  esp32_tilink_term  <- USB serial ->  tools/shell.py -> sh
 - **`calc/term/`** is the calculator program (about 5 KB), built with
   TIGCC / GCC4TI. It draws its own fixed-width 3x5 font, because the
   calculator's small font is proportional. The glyphs are drawn as text in
-  `font.txt`. It handles the VT100 codes that shells and full-screen programs
-  use: cursor movement, erasing, reverse video, scroll regions, insert and
-  delete line.
+  `font.txt`. It handles the VT220 codes that shells and full-screen programs
+  use: cursor movement, erasing, reverse video, scroll regions, inserting
+  and deleting lines and characters. Line-drawing characters come out as
+  `+`, `-` and `|`.
 - **`esp32/esp32_tilink_term/`** bridges the link to Serial. In its monitor
   mode a line typed in the Serial Monitor appears on the calculator, and
   `/burst`, `/stats` and `/raw` test the link. In raw mode every byte passes
   through untouched.
-- **`tools/shell.py`** runs a command on the computer in a 60x21 `vt100`
+- **`tools/shell.py`** runs a command on the computer in a 60x21 `vt220`
   pseudo-terminal joined to the ESP32's port. It switches the sketch to raw
   mode and back.
 
@@ -144,12 +145,18 @@ ESP32's port. `make calc:term:build` only builds.
 
 | Key | Does |
 |---|---|
-| ◆ + letter | Ctrl + letter (the keyboard has no Ctrl key) |
+| ◆ + letter | Ctrl + letter (the keyboard has no Ctrl key); ◆ + I is Tab |
+| ◆ + up / down | Page Up / Page Down |
+| 2nd + up / down | Home / End (2nd + left / right too) |
 | 2nd + plus (CHAR) | a strip of symbols on the bottom row; a letter picks one |
 | F1 | test pattern, with the time a full screen takes |
 | F2 | switch between online and local echo |
 | F3 | show each key's code instead of sending it |
 | 2nd + ESC (QUIT) | quit |
+
+Home and End work in the shell and in vim, but not in `less`: use `g` and
+`G` there. The startup banner shows when the program was built, which tells
+whether the calculator has the latest copy.
 
 The divide key types `/`. The (−) negation key is a TI-only character and is
 dropped; use the subtraction key for `-`.
@@ -162,6 +169,8 @@ dropped; use the subtraction key for `-`.
 - **`kbhit` and `ngetchx` must be avoided.** They also poll the link and
   treat incoming bytes as TI packets. The program reads the keyboard queue
   directly (`OSdequeue` on `kbd_queue()`).
+- **◆ + key arrives as 8192 + the key's code** on the Voyage 200 (◆ + up is
+  8530), as TIGCC's key table says. On the TI-89 the number is 16384.
 - **2nd + key arrives as 4096 + the key's code** when the combination is a
   function rather than a character: 2nd + plus is 4139. The CHAR menu
   belongs to AMS, hence the program's own symbol strip.
@@ -171,6 +180,10 @@ dropped; use the subtraction key for `-`.
   logged one link error, most likely a key pressed while the ESP32 was
   sending. If both ends start a byte at the same instant on different lines,
   each can take the other's bit for an acknowledgement. Not fixed yet.
+- **The terminal type matters for keys.** Under `vt100`, programs have no
+  code for Page Up and Page Down, and `less` only accepts the arrow keys'
+  "application" codes, which it switches on at start. The terminal now
+  follows that switch and reports itself as `vt220`, which has page keys.
 - **An unplugged pigtail floats** and reads as a stream of garbage bytes, so
   this sketch turns on the ESP32's internal pull-ups.
 

@@ -2,7 +2,7 @@
 """Runs a shell on this computer with the calculator as its terminal.
 
 The ESP32 (esp32_tilink_term) is put in raw mode and its serial port is
-joined to a pseudo-terminal of 60 x 21 characters with TERM=vt100. Start
+joined to a pseudo-terminal of 60 x 21 characters with TERM=vt220. Start
 term() on the calculator first.
 
     tools/shell.py                     the login shell
@@ -62,7 +62,7 @@ def main():
 
     pid, master = pty.fork()
     if pid == 0:
-        os.environ.update(TERM="vt100", LANG="C", LC_ALL="C")
+        os.environ.update(TERM="vt220", LANG="C", LC_ALL="C")
         for name in ("COLUMNS", "LINES", "TERM_PROGRAM", "ITERM_SESSION_ID"):
             os.environ.pop(name, None)
         try:
