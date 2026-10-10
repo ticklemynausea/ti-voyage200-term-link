@@ -51,9 +51,9 @@ With `arduino-cli` and the ESP32 board package installed, from the repo root
 (replace the sketch folder with the one you want):
 
 ```sh
-arduino-cli compile --upload -p /dev/cu.usbmodem14301 \
+arduino-cli compile --upload -p /dev/cu.usbmodemXXXX \
   --fqbn esp32:esp32:m5stack_stamp_s3 esp32/esp32_tilink_cbl
-arduino-cli monitor -p /dev/cu.usbmodem14301 -c baudrate=115200
+arduino-cli monitor -p /dev/cu.usbmodemXXXX -c baudrate=115200
 ```
 
 Replace the port with your own (`arduino-cli board list`). The sketches also

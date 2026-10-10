@@ -80,7 +80,7 @@ for ring.
 Flash the sniffer:
 
 ```sh
-arduino-cli compile --upload -p /dev/cu.usbmodem14301 \
+arduino-cli compile --upload -p /dev/cu.usbmodemXXXX \
   --fqbn esp32:esp32:m5stack_stamp_s3 esp32/esp32_tilink_c2c
 ```
 
@@ -89,7 +89,7 @@ keeps the monitor interactive, so you can still type commands:
 
 ```sh
 script -q calc-to-calc-protocol-reversed/captures/$(date +%Y-%m-%d_%H%M%S).log \
-  arduino-cli monitor -p /dev/cu.usbmodem14301 -c baudrate=115200
+  arduino-cli monitor -p /dev/cu.usbmodemXXXX -c baudrate=115200
 ```
 
 At startup it prints `tip high  ring high` once both calculators are on. Before
