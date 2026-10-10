@@ -5,6 +5,7 @@
 #   make esp32:term:flash    compile esp32_tilink_term and flash the ESP32
 #   make shell               run a shell here with the calculator as its terminal
 #                            (another command: make shell CMD=top)
+#                            (also show it here and type here: make shell MIRROR=1)
 #
 # The ESP32's port is found automatically; override with PORT=/dev/cu.xxx.
 
@@ -23,6 +24,6 @@ esp32\:term\:flash:
 
 shell:
 	@test -n "$(PORT)" || { echo "No ESP32 found on /dev/cu.usbmodem*. Plug it in or pass PORT=..."; exit 1; }
-	python3 tools/shell.py --port $(PORT) $(CMD)
+	python3 tools/shell.py --port $(PORT) $(if $(MIRROR),--mirror) $(CMD)
 
 .PHONY: shell calc\:term\:build calc\:term\:send esp32\:term\:flash

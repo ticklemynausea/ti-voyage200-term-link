@@ -58,6 +58,12 @@ up.
 waits until the calculator is in that session. Close the Serial Monitor
 first: only one program can hold the ESP32's port.
 
+`make shell MIRROR=1` shares the session with the window it runs in: the
+output is copied there, and keys typed there go to the same shell, next to
+the calculator's. Ctrl-C then goes to the shell like any other key, so
+Ctrl-] is what stops it. Without `MIRROR`, the window shows nothing, sends
+nothing, and Ctrl-C stops it.
+
 For SSH, choose Settings first. The ESP32 lists the Wi-Fi networks it sees
 and asks for the network (by number or name), its password, the SSH host
 (`host` or `host:port`) and the user. They are stored in the ESP32's flash

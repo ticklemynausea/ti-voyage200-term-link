@@ -8,9 +8,13 @@ term() on the calculator first.
     tools/shell.py                     the login shell
     tools/shell.py top                 any other command
     tools/shell.py --port /dev/cu.xxx  when the port is not found by itself
-    tools/shell.py --mirror            also copy the output to this window
+    tools/shell.py --mirror            share the session with this window
 
-Ends when the command exits, or with Ctrl-C here.
+With --mirror the output is also copied to this window, and keys typed here
+go to the same shell, alongside the calculator's.
+
+Ends when the command exits, or with Ctrl-C here (Ctrl-] with --mirror, where
+Ctrl-C goes to the shell).
 """
 import argparse
 import fcntl
@@ -22,11 +26,13 @@ import signal
 import struct
 import sys
 import termios
+import tty
 
 COLS, ROWS = 60, 21
 MARK = 0x1E
 CONTROL = bytes([MARK] * 3)
 MAX_QUEUE = 512  # bytes waiting for the ESP32 before the command is paused
+QUIT_KEY = 0x1D  # Ctrl-], as in telnet: Ctrl-C has to reach the shell
 
 # The link is far slower than USB and the ESP32 drops serial bytes it has no
 # room for. So at most WINDOW bytes are outstanding; the ESP32 answers every
@@ -55,7 +61,7 @@ def write_all(fd, data):
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--port", help="ESP32 serial port (default: first /dev/cu.usbmodem*)")
-    parser.add_argument("--mirror", action="store_true", help="copy the output to this window")
+    parser.add_argument("--mirror", action="store_true", help="show the output in this window and send its keys too")
     parser.add_argument("command", nargs=argparse.REMAINDER, help="command to run (default: login shell)")
     args = parser.parse_args()
 
@@ -81,7 +87,14 @@ def main():
     fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", ROWS, COLS, 0, 0))
     os.kill(pid, signal.SIGWINCH)
 
-    print(f"{' '.join(command)} is running on the calculator via {port}. Ctrl-C here to stop.")
+    # With --mirror this window's keyboard joins in. It is switched to raw
+    # mode so that every key, Ctrl-C included, goes to the shell as typed.
+    keyboard = sys.stdin.fileno() if args.mirror and sys.stdin.isatty() else None
+    stop_key = "Ctrl-]" if keyboard is not None else "Ctrl-C"
+    print(f"{' '.join(command)} is running on the calculator via {port}. {stop_key} here to stop.")
+    if keyboard is not None:
+        keyboard_attrs = termios.tcgetattr(keyboard)
+        tty.setraw(keyboard)
     to_calc = b""
     in_flight = 2  # the reset sequence sent above
     after_mark = False
@@ -89,6 +102,8 @@ def main():
     try:
         while not (exited and not to_calc):
             readers = [serial] + ([master] if not exited and len(to_calc) < MAX_QUEUE else [])
+            if keyboard is not None and not exited:
+                readers.append(keyboard)
             may_send = to_calc and in_flight < WINDOW
             readable, writable, _ = select.select(readers, [serial] if may_send else [], [])
             if serial in readable:
@@ -106,6 +121,11 @@ def main():
                         keys.append(byte)
                 if keys and not exited:
                     write_all(master, bytes(keys))
+            if keyboard in readable:
+                typed = os.read(keyboard, 1024)
+                if not typed or QUIT_KEY in typed:
+                    break
+                write_all(master, typed)
             if master in readable:
                 try:
                     data = os.read(master, 1024)
@@ -122,6 +142,8 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
+        if keyboard is not None:
+            termios.tcsetattr(keyboard, termios.TCSADRAIN, keyboard_attrs)
         try:
             os.kill(pid, signal.SIGHUP)
         except ProcessLookupError:
