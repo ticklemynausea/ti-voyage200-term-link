@@ -103,21 +103,63 @@ sketch answers `1E 'a'` for every 32 bytes it has passed on.
 
 ## Keys in a session
 
-| Key | Does |
+| Key | Sends |
 |---|---|
-| ◆ + letter | Ctrl + letter (the keyboard has no Ctrl key); ◆ + I is Tab |
+| letters, digits, punctuation | themselves |
+| ENTER | carriage return |
+| backspace | DEL (code 127), which shells take as "erase one character" |
+| ESC | Escape |
+| arrows | the arrow keys |
+| ◆ + letter | Ctrl + letter (the keyboard has no Ctrl key) |
 | ◆ + up / down | Page Up / Page Down |
 | 2nd + up / down | Home / End (2nd + left / right too) |
-| 2nd + plus (CHAR) | a strip of symbols on the bottom row; a letter picks one |
+| 2nd + plus (CHAR) | a symbol the keyboard lacks, picked from a strip on the bottom row |
 | F1 to F8 | the function keys |
-| 2nd + ESC (QUIT) | back to the menu |
+| 2nd + ESC (QUIT) | nothing: goes back to the menu. ◆ + ESC does the same |
 
-Home and End work in the shell and in vim, but not in `less`: use `g` and
-`G` there. The menu's first line shows when the program was built, which tells
-whether the calculator has the latest copy.
+Any other key sends nothing. That covers the TI-only characters, such as the
+(−) negation key: use the subtraction key for `-`. The divide key types `/`.
 
-The divide key types `/`. The (−) negation key is a TI-only character and is
-dropped; use the subtraction key for `-`.
+**Ctrl.** ◆ + a letter sends what Ctrl + that letter sends on a computer
+keyboard, in either case. The ones used most:
+
+| Key | Is | Usually does |
+|---|---|---|
+| ◆ + C | Ctrl-C | stops the running program |
+| ◆ + D | Ctrl-D | ends the input; at an empty prompt, logs out |
+| ◆ + Z | Ctrl-Z | suspends the running program |
+| ◆ + L | Ctrl-L | clears or redraws the screen |
+| ◆ + I | Ctrl-I | Tab: completes a name in the shell |
+| ◆ + R | Ctrl-R | searches the shell's history |
+| ◆ + A / ◆ + E | Ctrl-A / Ctrl-E | start / end of the line in the shell |
+
+Ctrl with a symbol is out of reach. The program would apply the same rule
+to `[`, `\`, `]`, `^`, `_` and `@`, but the keyboard only types most of them
+with 2nd, and ◆ + 2nd + a key sends nothing: tried with `]`, which is 2nd +
+divide. So there is no Ctrl-] or Ctrl-\. Ctrl-[ is not missed, since it is
+the ESC key.
+
+**Symbols.** 2nd + plus shows a strip on the bottom row with each symbol
+next to a letter, `a` to `v`. The letter picks the symbol, and any other key
+closes the strip:
+
+```
+a~ b` c| d\ e$ f% g& h# i@ j_ k{ l} m[ n] o< p> q' r" s; t: u! v?
+```
+
+**Arrows.** They send the usual codes (`ESC [ A` and so on). Programs such as
+`less` and `vim` ask for the "application" codes instead (`ESC O A`), and
+the arrows, Home and End switch to those until the program switches back.
+
+**Function keys.** F1 to F4 send `ESC O P` to `ESC O S`; F5 to F8 send
+`ESC [ 15 ~`, `17 ~`, `18 ~` and `19 ~`.
+
+**Finding a key's code.** The menu's Key codes entry (F6) shows the number
+the calculator gives for each key or combination. 2nd adds 4096 and ◆ adds
+8192 to the key's own code.
+
+The menu's first line shows when the program was built, which tells whether
+the calculator has the latest copy.
 
 ## Characters
 
