@@ -39,6 +39,24 @@ Things learned the hard way:
 - Stranded pigtail wires make poor breadboard contacts; tin them or solder them
   to header pins.
 
+## M5Stack Cardputer
+
+The terminal and wiring-check sketches also build for the Cardputer, whose
+battery makes the setup portable. They pick their pins from the board they
+are built for. The calculator connects to the Grove port:
+
+| Grove pin | Through | Plug part |
+|---|---|---|
+| G1 | 220 ohm | Tip |
+| G2 | 220 ohm | Ring |
+| GND | direct | Sleeve |
+| 5 V | not connected | |
+
+`make esp32:term:cardputer` builds
+`build/cardputer/esp32_tilink_term.ino.bin` and flashes nothing: copy the
+file to the SD card and install it from M5 Launcher. Not yet tried on a
+Cardputer.
+
 ## Wiring check
 
 `esp32/esp32_tilink_linetest/` prints the tip and ring levels whenever they

@@ -45,9 +45,16 @@
 // libssh needs far more stack than the default 8 KB.
 SET_LOOP_TASK_STACK_SIZE(48 * 1024);
 
-// Classic ESP32: 25 / 26.  M5Stack Stamp S3: 1 / 5.
+// The pins follow the board the sketch is built for.
+#if defined(ARDUINO_M5STACK_CARDPUTER)
+// M5Stack Cardputer: the two signal pins of its Grove port.
+const uint8_t PIN_TIP  = 1;
+const uint8_t PIN_RING = 2;
+#else
+// M5Stack Stamp S3. A classic ESP32 would use 25 / 26.
 const uint8_t PIN_TIP  = 1;
 const uint8_t PIN_RING = 5;
+#endif
 
 // How long a byte may wait for the calculator to start taking it.
 const uint32_t SEND_PATIENCE_MS = 5000;
