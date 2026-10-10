@@ -29,11 +29,40 @@ specification.
 | **Calculator-to-calculator protocol** | The ESP32 listens passively between two Voyage 200s; twenty tests document what they say to each other. | [PROTOCOL.md](calc-to-calc-protocol-reversed/PROTOCOL.md), [its README](calc-to-calc-protocol-reversed/README.md) |
 | **Hardware** | Parts, wiring, a wiring check sketch, building and flashing. | [docs/hardware.md](docs/hardware.md) |
 
+## Prerequisites
+
+Developed on macOS. The versions are the ones this was built with, not
+minimums.
+
+| Tool | For | Version used |
+|---|---|---|
+| [GCC4TI](https://github.com/debrouxl/gcc4ti) (`tigcc`) | building the calculator programs | tigcc 1.3.4, TIGCC 0.96 Beta 11 |
+| [TiLP](http://lpg.ticalc.org/prj_tilp/) (`tilp`) | sending programs to the calculator | 1.18 |
+| A TI link cable for the computer (SilverLink USB) | the same; `tilp` talks through it | |
+| [arduino-cli](https://arduino.github.io/arduino-cli/) | compiling and flashing the ESP32 sketches (the Arduino IDE works too) | 1.5.1 |
+| ESP32 board package (`esp32:esp32`) | the board definitions | 3.2.0 |
+| [LibSSH-ESP32](https://github.com/ewpa/LibSSH-ESP32) library | SSH in the terminal sketch | 5.10.0 |
+| Python 3 | the font converter and `tools/shell.py`; standard library only | 3.9 |
+| `make` | the shortcuts below | |
+
+The two Arduino pieces are installed once:
+
+```sh
+arduino-cli core install esp32:esp32
+arduino-cli lib install LibSSH-ESP32
+```
+
+`arduino-cli` and the Arduino IDE share one library folder, so a library
+installed with either is seen by both. In the IDE the same two are under
+Boards Manager ("esp32" by Espressif) and Library Manager ("LibSSH-ESP32").
+
+`tigcc`, `tilp`, `arduino-cli` and `python3` have to be on the PATH. The
+hardware is listed in [docs/hardware.md](docs/hardware.md).
+
 ## Quick start: the terminal
 
 Wire the ESP32 to the link port as in [docs/hardware.md](docs/hardware.md).
-With `tigcc`, `python3`, `tilp` and `arduino-cli` on the PATH, and
-`arduino-cli lib install LibSSH-ESP32` done once:
+With the prerequisites above in place:
 
 ```sh
 make esp32:term:flash    # compile and flash the ESP32
