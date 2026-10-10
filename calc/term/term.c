@@ -46,7 +46,7 @@ static unsigned char *cellAddr(short col, short row)
 
 static void drawCell(short col, short row, unsigned char ch, short rev)
 {
-  const unsigned char *glyph = font[(ch < 32 || ch > 127) ? 95 : ch - 32];
+  const unsigned char *glyph = font[(ch < 32 || ch >= 32 + GLYPHS) ? GLYPH_UNKNOWN - 32 : ch - 32];
   unsigned char *p = cellAddr(col, row);
   short shift = (col & 1) ? 0 : 4;
   unsigned char mask = 0xF << shift;
@@ -173,6 +173,8 @@ static short privateSeq;  // the sequence began with '?', '>' or '<'
 static short escIntermediate;
 static short insertMode;   // typed characters push the rest of the line right
 static short lineDrawing;  // the line-drawing character set is selected
+static unsigned long codePoint;  // the UTF-8 character being put together
+static short utf8Left;           // bytes of it still to come
 static short savedCol, savedRow, savedReverse;
 
 // Programs such as less switch the arrow keys to "application" codes
@@ -298,8 +300,77 @@ static void csiFinal(unsigned char c)
   }
 }
 
+// The glyph for a character outside ASCII. 0 means it takes no room.
+static unsigned char glyphFor(unsigned long cp)
+{
+  short lo = 0, hi = OTHERS - 1;
+
+  if (cp < LATIN_FIRST) return 0;  // control codes
+  if (cp < LATIN_FIRST + sizeof(latinGlyphs)) return latinGlyphs[cp - LATIN_FIRST];
+  if (cp >= BOXES_FIRST && cp < BOXES_FIRST + sizeof(boxGlyphs)) return boxGlyphs[cp - BOXES_FIRST];
+  if (cp >= 0x0300 && cp < 0x0370) return 0;  // accents added to the letter before
+  if (cp >= 0xFE00 && cp < 0xFE10) return 0;  // variation selectors
+  if (cp >= 0x2800 && cp < 0x2900) return cp == 0x2800 ? ' ' : '.';  // Braille, as in spinners
+
+  while (lo <= hi) {
+    short mid = (lo + hi) >> 1;
+    if (otherCodes[mid] == cp) return otherGlyphs[mid];
+    if (otherCodes[mid] < cp) lo = mid + 1;
+    else hi = mid - 1;
+  }
+  return GLYPH_UNKNOWN;
+}
+
+// East Asian characters and emoji take two cells on a terminal.
+static short isWide(unsigned long cp)
+{
+  return (cp >= 0x2E80 && cp <= 0xA4CF) || (cp >= 0xAC00 && cp <= 0xD7A3) ||
+         (cp >= 0xF900 && cp <= 0xFAFF) || (cp >= 0xFF00 && cp <= 0xFF60) || cp >= 0x1F300;
+}
+
+static void putGlyph(unsigned char glyph)
+{
+  if (wrapPending) {
+    curCol = 0;
+    wrapPending = 0;
+    lineFeed();
+  }
+  if (insertMode) insertChars(1);
+  drawCell(curCol, curRow, glyph, reverse);
+  if (curCol < COLS - 1) curCol++;
+  else wrapPending = 1;
+}
+
+// One byte of a UTF-8 character. Draws it once the last byte is in.
+static void putUtf8(unsigned char c)
+{
+  unsigned char glyph;
+
+  if (c >= 0xC0) {  // first byte: says how many follow
+    utf8Left = c < 0xE0 ? 1 : c < 0xF0 ? 2 : 3;
+    codePoint = c & (0x3F >> utf8Left);
+    return;
+  }
+  if (!utf8Left) {  // a continuation byte with nothing to continue
+    putGlyph(GLYPH_UNKNOWN);
+    return;
+  }
+  codePoint = (codePoint << 6) | (c & 0x3F);
+  if (--utf8Left) return;
+
+  glyph = glyphFor(codePoint);
+  if (isWide(codePoint)) putGlyph(glyph);
+  if (glyph) putGlyph(glyph);
+}
+
 static void putText(unsigned char c)
 {
+  if (c >= 0x80) {
+    putUtf8(c);
+    return;
+  }
+  utf8Left = 0;
+
   switch (c) {
     case '\r': curCol = 0; wrapPending = 0; return;
     case '\n': lineFeed(); return;
@@ -310,19 +381,12 @@ static void putText(unsigned char c)
   }
   if (c < 32) return;
 
-  // Boxes are drawn with the nearest plain characters.
+  // The VT100 line-drawing set: lines as glyphs, the rest as the nearest
+  // plain character.
   if (lineDrawing && c >= 0x60 && c <= 0x7E)
-    c = "+#    o+##+++++---__++++|<>*!f."[c - 0x60];
+    c = "+#    o+##" "\x85\x86\x8A\x89\x8F" "--" "\x8C" "__" "\x8B\x87\x8D\x8E\x83" "<>*!f."[c - 0x60];
 
-  if (wrapPending) {
-    curCol = 0;
-    wrapPending = 0;
-    lineFeed();
-  }
-  if (insertMode) insertChars(1);
-  drawCell(curCol, curRow, c, reverse);
-  if (curCol < COLS - 1) curCol++;
-  else wrapPending = 1;
+  putGlyph(c);
 }
 
 static void termPutc(unsigned char c)
@@ -616,6 +680,9 @@ static void testPattern(void)
   termPuts("erase to end of line -->XXXXXXXX\x1B[8D\x1B[K\r\n");
   termPuts("\x1B[10;20Hrow 10, column 20");
   termPuts("\x1B[21;1Hany key for the menu\x1B[1;50Htop right");
+  termPuts("\x1B[16;1H┌──┬──┐  ├── tree   ▁▂▃▄▅▆▇█ ░▒▓  café ação “q” → ✓\r\n"
+           "├──┼──┤  │   └── leaf\r\n"
+           "└──┴──┘  └── \x1B(0lqqk x mqqj\x1B(B (VT100 lines)");
   termPuts("\x1B[12;1H");
   for (i = 0; i < COLS + 10; i++) {
     char c = '0' + i % 10;

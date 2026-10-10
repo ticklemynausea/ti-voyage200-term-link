@@ -70,8 +70,8 @@ def main():
 
     pid, master = pty.fork()
     if pid == 0:
-        os.environ.update(TERM="vt220", LANG="C", LC_ALL="C")
-        for name in ("COLUMNS", "LINES", "TERM_PROGRAM", "ITERM_SESSION_ID"):
+        os.environ.update(TERM="vt220", LANG="en_US.UTF-8")
+        for name in ("LC_ALL", "COLUMNS", "LINES", "TERM_PROGRAM", "ITERM_SESSION_ID"):
             os.environ.pop(name, None)
         try:
             os.execvp(command[0], command)

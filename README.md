@@ -5,7 +5,7 @@ the reverse engineering of its link port that led there. An ESP32 (M5Stack
 Stamp S3, Arduino framework) sits on the calculator's 2.5 mm link port and
 does the networking; the calculator draws the text and reads the keys.
 
-The headline: a 7 KB C program turns the calculator into a 60x21 VT220
+The headline: a 9 KB C program turns the calculator into a 60x21 VT220
 terminal. From its menu you open a shell on the computer the ESP32 is plugged
 into, or an SSH session to any host over Wi-Fi. `vim`, `less`, `irssi` and
 `links` run on it.
@@ -62,7 +62,7 @@ calc/                                C programs for the calculator (TIGCC / GCC4
   hello/                             hello world; the build and send pattern
   term/                              a 60x21 terminal on the link port, with a menu
     term.c                             screen, VT220 subset, keyboard
-    font.txt, mkfont.py                the 3x5 font, drawn as text, and its converter
+    font.txt, mkfont.py                the 3x5 font, drawn as text; its converter and character table
 tools/
   shell.py                           joins a shell on the computer to the ESP32's port
 Makefile                             shortcuts for the terminal

@@ -11,13 +11,14 @@ calc/term  <- link ->  esp32_tilink_term  <- USB serial ->  tools/shell.py -> sh
                                           <- Wi-Fi, SSH ->  a shell on another host
 ```
 
-- **`calc/term/`** is the calculator program (about 7 KB), built with
+- **`calc/term/`** is the calculator program (about 9 KB), built with
   TIGCC / GCC4TI. It opens on a menu that picks where the session goes. It
   draws its own fixed-width 3x5 font, because the calculator's small font is
   proportional. The glyphs are drawn as text in `font.txt`. It handles the
   VT220 codes that shells and full-screen programs use: cursor movement,
   erasing, reverse video, scroll regions, inserting and deleting lines and
-  characters. Line-drawing characters come out as `+`, `-` and `|`.
+  characters. Text arrives as UTF-8; see [Characters](#characters) for what
+  it can draw.
 - **`esp32/esp32_tilink_term/`** carries the bytes to the backend the menu
   chose. `Ssh.h` / `Ssh.cpp` hold the SSH side, on the LibSSH-ESP32 library.
   On the serial side, its monitor mode shows what the calculator sends, and
@@ -111,6 +112,34 @@ whether the calculator has the latest copy.
 
 The divide key types `/`. The (−) negation key is a TI-only character and is
 dropped; use the subtraction key for `-`.
+
+## Characters
+
+The shell's text is read as UTF-8. With 3x5 pixels per letter there is no room
+for accents, so the terminal draws what it can and stands in for the rest:
+
+| Characters | Drawn as |
+|---|---|
+| ASCII | its own glyph, from `font.txt` |
+| Box drawing (U+2500 to U+257F), as `tree` and `mc` use | real lines that join from cell to cell; heavy, double and dashed lines all come out as plain ones |
+| Block elements (U+2580 to U+259F), as progress bars use | halves, eighths, quadrants and shades, to the nearest pixel |
+| Latin letters with accents (U+00A0 to U+017F) | the plain letter: `é` as `e`, `ç` as `c`, `ß` as `s` |
+| Curly quotes, dashes, arrows, bullets, ticks and the like | the nearest ASCII character: `→` as `>`, `✓` as `v`, `…` as `.` |
+| Braille patterns, as spinners use | `.` |
+| Accents sent as separate marks, zero-width marks | nothing |
+| East Asian characters and emoji | two solid blocks, so that columns stay aligned |
+| Anything else | one solid block |
+
+The VT100 line-drawing set (`ESC ( 0`), which older programs use for boxes,
+draws with the same line glyphs.
+
+`python3 calc/term/mkfont.py calc/term/font.txt --list` prints every covered
+character beyond ASCII with what it is drawn as: 495 of them at the moment.
+The stand-ins are listed at the top of `mkfont.py`; adding one is a matter of
+adding the character to the right line. The menu's test pattern (F5) shows a
+sample.
+
+This is about the screen only. The keyboard still types ASCII.
 
 ## Findings
 
