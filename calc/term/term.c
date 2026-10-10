@@ -453,7 +453,7 @@ static unsigned short waitKey(void)
 // each after the letter that picks it; any other key closes the menu.
 static void charMenu(void)
 {
-  static const char SYMBOLS[] = "~`|\\$%&#@_{}[]<>'\";:";
+  static const char SYMBOLS[] = "~`|\\$%&#@_{}[]<>'\";:!?";
   unsigned char saved[CELL_H * LCD_ROW_BYTES];
   unsigned char *row = cellAddr(0, ROWS - 1);
   unsigned short key;
@@ -462,10 +462,10 @@ static void charMenu(void)
   hideCursor();
   memcpy(saved, row, sizeof(saved));
   for (i = 0; SYMBOLS[i]; i++) {
-    drawCell(i * 3, ROWS - 1, 'a' + i, 1);
-    drawCell(i * 3 + 1, ROWS - 1, SYMBOLS[i], 0);
-    drawCell(i * 3 + 2, ROWS - 1, ' ', 0);
+    drawCell(i * 2, ROWS - 1, 'a' + i, 1);
+    drawCell(i * 2 + 1, ROWS - 1, SYMBOLS[i], 0);
   }
+  clearCells(i * 2, COLS - 1, ROWS - 1);
   key = waitKey();
   memcpy(row, saved, sizeof(saved));
 
