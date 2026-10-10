@@ -11,6 +11,8 @@
  *   'c'  Settings: asks on the calculator for the Wi-Fi network and the SSH
  *        host and user, and stores them in the ESP32's flash (Preferences)
  *   'x'  the session is over
+ *   'w'  asks for the Wi-Fi status, for the menu's status bar. The answer is
+ *        0x1E 'w', a line of text and a newline. It leaves the backend alone.
  * A real 0x1E byte from the calculator arrives doubled.
  *
  * Serial has two modes:
@@ -321,12 +323,29 @@ void runCalcCommand(char command) {
   }
 }
 
+// One line for the calculator menu's status bar.
+void sendWifiStatus() {
+  String status;
+  if (!target.wifiName.length()) {
+    status = "Wi-Fi: not set up (F3)";
+  } else if (WiFi.status() == WL_CONNECTED) {
+    status = "Wi-Fi: " + WiFi.SSID() + "  " + WiFi.RSSI() + " dBm  " + WiFi.localIP().toString();
+  } else {
+    status = "Wi-Fi: " + target.wifiName + ", not connected";
+  }
+  sendToCalc(CONTROL_MARK);
+  sendToCalc('w');
+  sendText(status.substring(0, 60).c_str());
+  sendToCalc('\n');
+}
+
 void runPendingCommands() {
   while (pendingCount) {
     char command = pendingCommands[0];
     pendingCount--;
     memmove(pendingCommands, pendingCommands + 1, pendingCount);
-    runCalcCommand(command);
+    if (command == 'w') sendWifiStatus();
+    else runCalcCommand(command);
   }
 }
 
@@ -405,6 +424,11 @@ void setup() {
   Serial.begin(115200);
   ti.begin();
   loadSettings();
+  // Join the stored network in the background, so it is up before it is needed.
+  if (target.wifiName.length()) {
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(target.wifiName.c_str(), target.wifiPassword.c_str());
+  }
   delay(500);
   Serial.println("\nTI link terminal bridge ready. Run term() on the calculator.");
   Serial.printf("Line idle: %s\n", ti.lineIdle() ? "yes" : "NO - check wiring / calculator on?");

@@ -162,7 +162,7 @@ static void moveTo(short col, short row)
 
 // ---------- escape codes ----------
 
-enum { ST_TEXT, ST_ESC, ST_CSI, ST_SKIP, ST_OSC, ST_OSC_ESC };
+enum { ST_TEXT, ST_ESC, ST_CSI, ST_SKIP, ST_OSC, ST_OSC_ESC, ST_MARK, ST_STATUS };
 
 #define MAX_PARAMS 4
 
@@ -306,6 +306,7 @@ static void putText(unsigned char c)
     case '\b': moveTo(curCol - 1, curRow); return;
     case '\t': moveTo((curCol | 7) + 1, curRow); return;
     case 0x1B: state = ST_ESC; return;
+    case 0x1E: state = ST_MARK; return;  // a late answer meant for the menu
   }
   if (c < 32) return;
 
@@ -374,6 +375,14 @@ static void termPutc(unsigned char c)
         privateSeq = 1;  // a mode this terminal does not have
       }
       // anything else (spaces and such) belongs to the sequence: ignore it
+      break;
+
+    case ST_MARK:
+      state = (c == 'w') ? ST_STATUS : ST_TEXT;
+      break;
+
+    case ST_STATUS:
+      if (c == '\n') state = ST_TEXT;
       break;
 
     case ST_SKIP:
@@ -617,11 +626,26 @@ static void testPattern(void)
   waitKey();
 }
 
+#define STATUS_TICKS 60  // 3 s between questions to the ESP32
+
+// The menu's bottom row, in reverse video.
+static void drawStatus(const char *text, short len)
+{
+  short col;
+  for (col = 0; col < COLS; col++) drawCell(col, ROWS - 1, col < len ? text[col] : ' ', 1);
+}
+
 // Returns 0 when the choice is to leave the program.
 static short menu(void)
 {
-  char discard[64];
+  char buf[64];
+  char status[COLS];
   unsigned short key;
+  short choice = 0;
+  short step = 0;        // where in "LINK_MARK w text newline" the input is
+  short statusLen = 0;
+  short unanswered = 0;
+  short n, i;
 
   termPuts("\x1B" "c");
   termPuts("Voyage 200 terminal, built " __DATE__ " " __TIME__ "\r\n\r\n");
@@ -635,24 +659,52 @@ static short menu(void)
   termPuts("In a session: 2nd+ESC returns here, 2nd+plus lists symbols,\r\n");
   termPuts("diamond+letter is Ctrl, diamond+up/down pages.");
 
-  for (;;) {
-    // Whatever arrives outside a session belongs to nobody.
-    while (OSReadLinkBlock(discard, sizeof(discard)) > 0) { }
-    if (OSdequeue(&key, keyQueue)) {
+  drawStatus("Wi-Fi: asking the ESP32...", 26);
+  linkCommand('w');
+  OSRegisterTimer(USER_TIMER, STATUS_TICKS);
+
+  while (!choice) {
+    // Outside a session only the Wi-Fi status is expected; the rest is dropped.
+    n = OSReadLinkBlock(buf, sizeof(buf));
+    for (i = 0; i < n; i++) {
+      char c = buf[i];
+      if (step == 0) {
+        if (c == LINK_MARK) step = 1;
+      } else if (step == 1) {
+        step = (c == 'w') ? 2 : 0;
+        statusLen = 0;
+      } else if (c == '\n') {
+        drawStatus(status, statusLen);
+        unanswered = 0;
+        step = 0;
+      } else if (statusLen < COLS) {
+        status[statusLen++] = c;
+      }
+    }
+
+    if (!OSdequeue(&key, keyQueue)) {
+      if (isQuitKey(key)) key = KEY_ESC;
+      if ((key >= KEY_F1 && key <= KEY_F6) || key == KEY_ESC) choice = key;
+    } else if (OSTimerExpired(USER_TIMER)) {
+      if (++unanswered > 2) drawStatus("ESP32: no answer", 16);
+      linkCommand('w');
+      OSTimerRestart(USER_TIMER);
+    } else if (n == 0) {
       idle();
-      continue;
     }
-    switch (key) {
-      case KEY_F1: session(MODE_SERIAL); return 1;
-      case KEY_F2: session(MODE_SSH); return 1;
-      case KEY_F3: session(MODE_SETTINGS); return 1;
-      case KEY_F4: session(MODE_LOCAL); return 1;
-      case KEY_F5: testPattern(); return 1;
-      case KEY_F6: session(MODE_KEY_CODES); return 1;
-      case KEY_ESC: return 0;
-    }
-    if (isQuitKey(key)) return 0;
   }
+  OSFreeTimer(USER_TIMER);
+
+  switch (choice) {
+    case KEY_F1: session(MODE_SERIAL); break;
+    case KEY_F2: session(MODE_SSH); break;
+    case KEY_F3: session(MODE_SETTINGS); break;
+    case KEY_F4: session(MODE_LOCAL); break;
+    case KEY_F5: testPattern(); break;
+    case KEY_F6: session(MODE_KEY_CODES); break;
+    case KEY_ESC: return 0;
+  }
+  return 1;
 }
 
 void _main(void)
