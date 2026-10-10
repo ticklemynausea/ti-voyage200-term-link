@@ -1,11 +1,13 @@
 // A dumb terminal for the TI Voyage 200, built with TIGCC / GCC4TI.
 //
 // 60 x 21 characters in a 4x6 cell, with a subset of the VT100 escape codes.
-// For now there is no link: what is typed is looped back to the screen.
+// Keys go out of the link port as raw bytes, and whatever comes in is drawn.
+// The other end is the ESP32 running esp32/esp32_tilink_term.
 //
 // Keys:
 //   diamond + letter   Ctrl + letter
 //   F1                 test pattern, with the time a full screen takes
+//   F2                 switch between online and local echo
 //   2nd + ESC (QUIT)   quit; diamond + ESC does the same
 
 #define USE_V200
@@ -241,10 +243,22 @@ static void termPuts(const char *s)
 
 // ---------- host ----------
 
-// Sends bytes towards the host. No link yet: echoes them the way a shell
+// The link is interrupt driven: AMS moves bytes between the port and its
+// transmit and receive queues in the background, and these calls only touch
+// the queues. Nothing here uses TI's packet protocol.
+
+static short online = 1;
+
+// Sends bytes towards the host. In local mode it echoes them the way a shell
 // would, so the terminal can be tried on its own.
 static void hostSend(const char *s, short len)
 {
+  if (online) {
+    // Fails when the transmit queue is full (nobody is listening): the keys
+    // are dropped rather than left to pile up.
+    OSWriteLinkBlock(s, len);
+    return;
+  }
   while (len--) {
     char c = *s++;
     if (c == '\r') termPuts("\r\n");
@@ -313,6 +327,10 @@ static short handleKey(short key)
     hostSend("\x1B[D", 3);
   } else if (key == KEY_F1) {
     testPattern();
+  } else if (key == KEY_F2) {
+    online = !online;
+    OSLinkOpen();  // drops whatever is still queued
+    termPuts(online ? "\r\n[online]\r\n" : "\r\n[local echo]\r\n");
   } else if (key >= 32 && key < 127) {
     c = key;
     hostSend(&c, 1);
@@ -322,16 +340,30 @@ static short handleKey(short key)
 
 void _main(void)
 {
-  memset(lcd, 0, LCD_SIZE);
-  termPuts("Voyage 200 terminal - local echo\r\n");
-  termPuts("F1 test pattern, 2nd+ESC quit\r\n\r\n");
+  // Keys are taken straight from the keyboard queue. kbhit and ngetchx would
+  // also poll the link and treat incoming bytes as TI packets.
+  void *keys = kbd_queue();
+  char buf[64];
+  unsigned short key;
+  short n;
 
+  memset(lcd, 0, LCD_SIZE);
+  termPuts("Voyage 200 terminal\r\n");
+  termPuts("F1 test pattern, F2 local echo, 2nd+ESC quit\r\n\r\n");
+
+  OSLinkReset();
+  OSLinkOpen();
   OSFreeTimer(USER_TIMER);
   OSRegisterTimer(USER_TIMER, BLINK_TICKS);
 
   for (;;) {
-    if (kbhit()) {
-      if (!handleKey(ngetchx())) break;
+    n = OSReadLinkBlock(buf, sizeof(buf));
+    if (n > 0 && online) {
+      termWrite(buf, n);
+      toggleCursor();
+      OSTimerRestart(USER_TIMER);
+    } else if (!OSdequeue(&key, keys)) {
+      if (!handleKey(key)) break;
       if (!cursorShown) toggleCursor();
       OSTimerRestart(USER_TIMER);
     } else if (OSTimerExpired(USER_TIMER)) {
@@ -343,4 +375,5 @@ void _main(void)
   }
 
   OSFreeTimer(USER_TIMER);
+  OSLinkReset();  // leave nothing behind for AMS to read as a packet
 }
