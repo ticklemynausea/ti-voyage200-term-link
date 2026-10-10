@@ -18,6 +18,11 @@ experiments:
 Treat the protocol notes as findings from these calculators, not as a
 specification.
 
+A third experiment is under way: the calculator as a dumb terminal, with the
+ESP32 carrying the bytes to a real shell. So far only the calculator side
+exists, in `calc/term/`. Build it with `make` there (it needs `tigcc` and
+`python3`), send `build/term.v2z` with TiLP and run `term()`.
+
 ## Repository layout
 
 ```
@@ -29,6 +34,11 @@ esp32/                               Arduino sketches (one folder per sketch)
     esp32_tilink_c2c.ino               sampler, packet printer, line history, Serial commands
     BitDecoder.h                       passive bit decoder (plain C++, testable on a PC)
   esp32_tilink_linetest/             wiring check: prints tip/ring levels without driving them
+calc/                                C programs for the calculator (TIGCC / GCC4TI)
+  hello/                             hello world; the build and send pattern
+  term/                              experiment 3: a 60x21 terminal (local echo only so far)
+    term.c                             screen, VT100 subset, keyboard
+    font.txt, mkfont.py                the 3x5 font, drawn as text, and its converter
 calc-to-calc-protocol-reversed/      experiment 2: documentation and data
   README.md                            sniffer wiring, flashing, running a capture session
   TESTS.md                             the test sequence (T00-T20)
