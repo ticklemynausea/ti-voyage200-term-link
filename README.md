@@ -1,224 +1,82 @@
 # ti-voyager-arduino-link
 
-Experiments in talking to a **TI Voyage 200** graphing calculator through its
-2.5 mm link port, using an ESP32 (M5Stack Stamp S3) programmed with the Arduino
-framework.
+A **TI Voyage 200** graphing calculator as a terminal to real computers, and
+the reverse engineering of its link port that led there. An ESP32 (M5Stack
+Stamp S3, Arduino framework) sits on the calculator's 2.5 mm link port and
+does the networking; the calculator draws the text and reads the keys.
 
-The long-term idea is to give the Voyage 200 some form of internet access, with
-the ESP32 doing the networking and the calculator acting as a terminal. This
-repo is the groundwork for that, not a finished product. It holds three
-experiments:
+The headline: a 7 KB C program turns the calculator into a 60x21 VT220
+terminal. From its menu you open a shell on the computer the ESP32 is plugged
+into, or an SSH session to any host over Wi-Fi. `vim`, `less`, `irssi` and
+`links` run on it.
 
-1. **ESP32 as a link partner.** The ESP32 takes part in the link, posing as a
-   CBL data logger or as another calculator. TI-BASIC's `Send`, `Get` and
-   `SendCalc` can then talk to it.
-2. **Calculator-to-calculator protocol.** The ESP32 listens passively between
-   two Voyage 200s. A series of tests documents what they say to each other.
+```
+Voyage 200             ESP32
+calc/term  <- link ->  esp32_tilink_term  <- USB serial ->  a shell on the computer
+                                          <- Wi-Fi, SSH ->  a shell on another host
+```
 
-3. **Calculator as a terminal.** A C program turns the Voyage 200 into a
-   60x21 text terminal, and the ESP32 carries the bytes to a real shell,
-   over USB or over Wi-Fi with SSH. `vim` runs on it.
-
+This is a hobby project and a record of experiments, not a finished product.
 Treat the protocol notes as findings from these calculators, not as a
 specification.
+
+## What is here
+
+| Part | What it does | Read |
+|---|---|---|
+| **Calculator as a terminal** | The terminal program, the ESP32 bridge with SSH and stored Wi-Fi settings, and the script that joins a local shell to it. | [docs/terminal.md](docs/terminal.md) |
+| **ESP32 as a link partner** | The ESP32 speaks TI's packet protocol, posing as a CBL data logger or another calculator, so TI-BASIC's `Send`, `Get` and `SendCalc` talk to it. | [docs/link-partner.md](docs/link-partner.md) |
+| **Calculator-to-calculator protocol** | The ESP32 listens passively between two Voyage 200s; twenty tests document what they say to each other. | [PROTOCOL.md](calc-to-calc-protocol-reversed/PROTOCOL.md), [its README](calc-to-calc-protocol-reversed/README.md) |
+| **Hardware** | Parts, wiring, a wiring check sketch, building and flashing. | [docs/hardware.md](docs/hardware.md) |
+
+## Quick start: the terminal
+
+Wire the ESP32 to the link port as in [docs/hardware.md](docs/hardware.md).
+With `tigcc`, `python3`, `tilp` and `arduino-cli` on the PATH, and
+`arduino-cli lib install LibSSH-ESP32` done once:
+
+```sh
+make esp32:term:flash    # compile and flash the ESP32
+make calc:term:send      # build term.v2z and send it (SilverLink cable)
+make shell               # optional: a shell on this computer for the Serial entry
+```
+
+Run `term()` on the calculator. F3 sets the Wi-Fi network and the SSH host,
+F2 connects over SSH, F1 uses the shell from `make shell`. The keys, the
+settings and what was learned on the way are in
+[docs/terminal.md](docs/terminal.md).
 
 ## Repository layout
 
 ```
 esp32/                               Arduino sketches (one folder per sketch)
-  esp32_tilink_cbl/                  experiment 1: the ESP32 as a link partner
+  esp32_tilink_cbl/                  the ESP32 as a link partner
     esp32_tilink_cbl.ino               packet layer, decoders, Serial commands
     TiLink.h, TiLink.cpp               bit-level link driver with error diagnostics
-  esp32_tilink_c2c/                  experiment 2: passive sniffer between two calculators
+  esp32_tilink_c2c/                  passive sniffer between two calculators
     esp32_tilink_c2c.ino               sampler, packet printer, line history, Serial commands
     BitDecoder.h                       passive bit decoder (plain C++, testable on a PC)
-  esp32_tilink_term/                 experiment 3: carries calc/term's bytes to Serial or SSH
+  esp32_tilink_term/                 carries calc/term's bytes to Serial or SSH
   esp32_tilink_linetest/             wiring check: prints tip/ring levels without driving them
 calc/                                C programs for the calculator (TIGCC / GCC4TI)
   hello/                             hello world; the build and send pattern
-  term/                              experiment 3: a 60x21 terminal on the link port, with a menu
+  term/                              a 60x21 terminal on the link port, with a menu
     term.c                             screen, VT220 subset, keyboard
     font.txt, mkfont.py                the 3x5 font, drawn as text, and its converter
 tools/
-  shell.py                           experiment 3: joins a shell on the computer to the ESP32's port
-Makefile                             shortcuts for experiment 3
-calc-to-calc-protocol-reversed/      experiment 2: documentation and data
+  shell.py                           joins a shell on the computer to the ESP32's port
+Makefile                             shortcuts for the terminal
+calc-to-calc-protocol-reversed/      the calculator-to-calculator protocol: documentation and data
   README.md                            sniffer wiring, flashing, running a capture session
   TESTS.md                             the test sequence (T00-T20)
   PROTOCOL.md                          the reversed calculator-to-calculator protocol
   captures/                            raw logs of every session, named by date and time
-README.md                            this file; also the experiment 1 protocol notes
+docs/
+  terminal.md                        the terminal: running it, keys, how the pieces talk, findings
+  link-partner.md                    the link-partner sketch and its protocol findings
+  hardware.md                        parts, wiring, wiring check, building and flashing
+README.md                            this file
 ```
-
-## Experiment 1: the ESP32 as a link partner
-
-`esp32/esp32_tilink_cbl/` makes the ESP32 answer the calculator's link
-protocol. Every packet is logged to the Serial Monitor (115200 baud). Type
-`help` there for its commands.
-
-- **Receives** `Send {...}` (posing as a CBL) and `SendCalc` (posing as
-  another calculator). It decodes lists and strings, and shows function
-  bodies as a list of tokens.
-- **Answers `Get x`** with a list.
-- **Pushes** string variables to the calculator unprompted (`push <name>
-  <text>`). The calculator takes them silently while idle at the Home screen.
-
-`TiLink.h` / `TiLink.cpp` implement the bit-level handshake. When a byte
-fails, they report the stage, bit and line levels. What this experiment
-found is under [Protocol findings](#protocol-findings-esp32--calculator)
-below.
-
-## Experiment 2: the calculator-to-calculator protocol
-
-`esp32/esp32_tilink_c2c/` sits on the link between two Voyage 200s and only
-listens. Both pins are inputs, so the calculators talk exactly as they would
-over TI's cable.
-
-- **Sampling.** One core samples the lines about every 50 ns, from IRAM with
-  interrupts off, and decodes the handshake. The other core assembles
-  packets, checks their checksums and prints them with timestamps.
-- **Line history.** It keeps a rolling history of line changes, printed
-  automatically around anything that looks wrong.
-- **Probe pulses.** It recognises the calculators' 200 µs probe pulses, so
-  they aren't counted as data.
-
-Everything else for this experiment is in
-[`calc-to-calc-protocol-reversed/`](calc-to-calc-protocol-reversed/):
-- the sniffer's wiring (a second pigtail on the same breadboard rows);
-- how to record a session;
-- the test sequence;
-- every capture;
-- **[PROTOCOL.md](calc-to-calc-protocol-reversed/PROTOCOL.md)**, the write-up.
-
-All tests T00–T20 have been run. They cover:
-- the packet exchange for single and multiple variables;
-- the RDY check that VAR-LINK uses;
-- the data encoding of numbers, expressions, strings, lists, matrices,
-  functions, programs, text and pictures;
-- folders, overwrite prompts, aborts, `SendChat`, and a Flash app transfer.
-
-The open questions are listed at the end of PROTOCOL.md.
-
-## Experiment 3: the calculator as a terminal
-
-The calculator is a dumb terminal: it draws characters, reads keys and moves
-raw bytes over the link port. TI's packet protocol is not involved. The ESP32
-carries the bytes to a shell, either on the computer it is plugged into or on
-any host it can reach by SSH over Wi-Fi.
-
-```
-Voyage 200             ESP32
-calc/term  <- link ->  esp32_tilink_term  <- USB serial ->  tools/shell.py -> shell
-                                          <- Wi-Fi, SSH ->  a shell on another host
-```
-
-- **`calc/term/`** is the calculator program (about 7 KB), built with
-  TIGCC / GCC4TI. It opens on a menu that picks where the session goes. It
-  draws its own fixed-width 3x5 font, because the calculator's small font is
-  proportional. The glyphs are drawn as text in `font.txt`. It handles the
-  VT220 codes that shells and full-screen programs use: cursor movement,
-  erasing, reverse video, scroll regions, inserting and deleting lines and
-  characters. Line-drawing characters come out as `+`, `-` and `|`.
-- **`esp32/esp32_tilink_term/`** carries the bytes to the backend the menu
-  chose. `Ssh.h` / `Ssh.cpp` hold the SSH side, on the LibSSH-ESP32 library.
-  On the serial side, its monitor mode shows what the calculator sends, and
-  `/burst`, `/stats` and `/raw` test the link.
-- **`tools/shell.py`** runs a command on the computer in a 60x21 `vt220`
-  pseudo-terminal joined to the ESP32's port, for the menu's Serial entry.
-
-### Running it
-
-Needs `tigcc`, `python3`, `tilp` and `arduino-cli` on the PATH, and the SSH
-library once: `arduino-cli lib install LibSSH-ESP32`. From the repo root:
-
-```sh
-make calc:term:send      # build term.v2z and send it (SilverLink cable)
-make esp32:term:flash    # compile and flash the bridge sketch
-make shell               # for the Serial entry: the login shell; or: make shell CMD=top
-```
-
-Move the calculator to the ESP32's pigtail and run `term()`. The menu:
-
-| Key | Entry |
-|---|---|
-| F1 | Serial: the shell that `make shell` runs on the computer |
-| F2 | SSH: a shell on the host in the settings, over Wi-Fi |
-| F3 | Settings: the Wi-Fi network, the SSH host and the user |
-| F4 | Local echo: nothing leaves the calculator |
-| F5 | Test pattern, with the time a full screen takes |
-| F6 | Key codes: shows each key's code |
-| ESC | Exit |
-
-`make shell` can be started before or after choosing Serial: its output
-waits until the calculator is in that session. Close the Serial Monitor
-first: only one program can hold the ESP32's port.
-
-For SSH, choose Settings first. The ESP32 lists the Wi-Fi networks it sees
-and asks for the network (by number or name), its password, the SSH host
-(`host` or `host:port`) and the user. They are stored in the ESP32's flash
-(the Preferences library), so they survive power cycles and reflashing, and
-the Wi-Fi password is readable there by anyone holding the board. The SSH
-password is asked for at every connection and never stored. `/settings` in
-the Serial Monitor shows what is stored, without the password.
-
-The host's key is remembered at the first connection and checked
-afterwards; if it changes, the connection is refused until `/forgethost` is
-typed in the Serial Monitor.
-
-### Keys in a session
-
-| Key | Does |
-|---|---|
-| ◆ + letter | Ctrl + letter (the keyboard has no Ctrl key); ◆ + I is Tab |
-| ◆ + up / down | Page Up / Page Down |
-| 2nd + up / down | Home / End (2nd + left / right too) |
-| 2nd + plus (CHAR) | a strip of symbols on the bottom row; a letter picks one |
-| F1 to F8 | the function keys |
-| 2nd + ESC (QUIT) | back to the menu |
-
-Home and End work in the shell and in vim, but not in `less`: use `g` and
-`G` there. The menu's first line shows when the program was built, which tells
-whether the calculator has the latest copy.
-
-The divide key types `/`. The (−) negation key is a TI-only character and is
-dropped; use the subtraction key for `-`.
-
-### Findings
-
-- **Raw bytes work through AMS's own link queues.** After `OSLinkOpen`, the
-  OS keeps moving bytes between the port and its queues in the background,
-  and `OSWriteLinkBlock` / `OSReadLinkBlock` only touch the queues.
-- **`kbhit` and `ngetchx` must be avoided.** They also poll the link and
-  treat incoming bytes as TI packets. The program reads the keyboard queue
-  directly (`OSdequeue` on `kbd_queue()`).
-- **◆ + key arrives as 8192 + the key's code** on the Voyage 200 (◆ + up is
-  8530), as TIGCC's key table says. On the TI-89 the number is 16384.
-- **2nd + key arrives as 4096 + the key's code** when the combination is a
-  function rather than a character: 2nd + plus is 4139. The CHAR menu
-  belongs to AMS, hence the program's own symbol strip.
-- **The link held up in a burst test:** 7083 bytes to the calculator with
-  none dropped and no retries, and 127 bytes back from typing meanwhile.
-- **Serial output has to be paced.** The link carries about 3 KB/s, far
-  less than USB, and the ESP32 drops serial bytes it has no room for.
-  Programs that repaint the whole screen then lost part of their output.
-  `tools/shell.py` keeps at most 128 bytes outstanding and the sketch
-  acknowledges every 32 it has passed on.
-- **Collisions can lose a keystroke.** The link is half duplex. That test
-  logged one link error, most likely a key pressed while the ESP32 was
-  sending. If both ends start a byte at the same instant on different lines,
-  each can take the other's bit for an acknowledgement. Not fixed yet.
-- **The terminal type matters for keys.** Under `vt100`, programs have no
-  code for Page Up and Page Down, and `less` only accepts the arrow keys'
-  "application" codes, which it switches on at start. The terminal now
-  follows that switch and reports itself as `vt220`, which has page keys.
-- **An unplugged pigtail floats** and reads as a stream of garbage bytes, so
-  this sketch turns on the ESP32's internal pull-ups.
-
-## Wiring check
-
-`esp32/esp32_tilink_linetest/` prints the tip and ring levels whenever they
-change, plus a periodic heartbeat. It never drives the lines. Use it before
-either experiment to check the wiring and the ground connection.
 
 ## Removed experiments
 
@@ -231,156 +89,9 @@ They are in the git history, last present in commit `d4abde0`:
   using a custom frame format instead of TI's packets.
   - It needs a C program on the calculator (GCC4TI).
   - It was never tested end to end.
-  - Experiment 3 took this route again, with raw bytes and no frames.
+  - The terminal took this route again, with raw bytes and no frames.
 - `arduino/ti_link_arduino/` with `calculator/tilink.c`: the first experiment,
   for an Arduino Uno/Nano.
-
-## Hardware
-
-- TI Voyage 200 (the TI-89 / TI-92 Plus family should behave the same way);
-  two of them for experiment 2
-- M5Stack Stamp S3 (ESP32-S3). Other ESP32 boards should work with different
-  pins, except that the c2c sniffer uses ESP32-S3 features.
-- 2.5 mm stereo (TRS) pigtail cables: one per calculator. The plug's moulded
-  collar may need shaving down to seat fully in the Voyage 200's recessed port.
-- Two 220 ohm resistors
-
-## Wiring (Stamp S3)
-
-The Voyage 200's link lines are open-collector with pull-ups, and on this unit
-they idle at **3.3 V**, so the Stamp S3 is wired directly with no level shifter.
-
-| Pigtail wire | Plug part | Stamp S3 |
-|---|---|---|
-| Red | Tip | 220 ohm -> G1 |
-| White | Ring | 220 ohm -> G5 |
-| Black | Sleeve | GND |
-
-For experiment 2, the second calculator's pigtail joins the same three rows;
-see [its README](calc-to-calc-protocol-reversed/README.md#wiring).
-
-Measure your own calculator first (tip and ring against sleeve, calculator on,
-at the Home screen). If the lines idle at about 5 V, use a bidirectional level
-shifter.
-
-Things learned the hard way:
-
-- **A solid ground connection is essential.** With a loose ground the lines
-  pick up hum from the laptop's power adapter and toggle every 10 ms.
-- **Power order matters.** Plug in the ESP32's USB before connecting the
-  calculator, and unplug the calculator first. Otherwise the calculator's
-  pull-ups can half-power the unpowered ESP32 through its pin protection
-  diodes, and it then fails to appear on USB.
-- Stranded pigtail wires make poor breadboard contacts; tin them or solder them
-  to header pins.
-
-## Building and flashing
-
-With `arduino-cli` and the ESP32 board package installed, from the repo root
-(replace the sketch folder with the one you want):
-
-```sh
-arduino-cli compile --upload -p /dev/cu.usbmodem14301 \
-  --fqbn esp32:esp32:m5stack_stamp_s3 esp32/esp32_tilink_cbl
-arduino-cli monitor -p /dev/cu.usbmodem14301 -c baudrate=115200
-```
-
-Replace the port with your own (`arduino-cli board list`). The sketches also
-open in the Arduino IDE.
-
-## Protocol findings (ESP32 ↔ calculator)
-
-From experiment 1, observed on a Voyage 200. For what two calculators say to
-each other, see [PROTOCOL.md](calc-to-calc-protocol-reversed/PROTOCOL.md).
-
-- **Bit handshake.** Both lines idle high. A 0 bit is signalled by the sender
-  pulling tip low, a 1 bit by pulling ring low; the receiver acknowledges on the
-  other line. Bytes go LSB first. The calculator reacts very quickly: after the
-  receiver releases its acknowledgement line, the calculator may pull that same
-  line low for the next bit before the ESP32 ever reads it as high, so the receiver
-  must not insist on seeing it rise.
-- **Packets.** `machine id | command | length (2 bytes, little-endian)`, followed
-  for some commands by `data | checksum (16-bit sum, little-endian)`.
-- **`Send {...}`** (CBL mode). The calculator sends with machine ID `0x89` and
-  accepts replies from `0x19`. Exchange: VAR -> ACK, CTS -> ACK -> DATA -> ACK ->
-  EOT -> ACK. The DATA payload is a 4-byte element count followed by the elements
-  as decimal text, e.g. `03 00 00 00 " -1.5 2E+6 0.33333" 00`. Only numbers are
-  accepted, and values are rounded to about 5 significant digits.
-- **`SendCalc`** uses the same exchange with machine ID `0x88`, and needs replies
-  carrying `0x88` too. A string arrives as
-  `00 00 00 00 | size (2 bytes, big-endian) | 00 | text | 00 | 2D`.
-- **Functions** (`SendCalc` of a function, type `0x13`) arrive in the calculator's
-  internal tokenized form, not as text:
-  `00 00 00 00 | size (2 bytes BE) | E9 | body | E5 | parameters | 00 | ?? | 40 | DC`.
-  The body is in reverse-Polish order (operands before operators). Tokens confirmed
-  from captures: `08` x, `0B`-`1A` the letters a-p (`18` = n), `08 F0` x as the
-  function's own parameter, `<value> <length> 1F` a positive integer, `28` ∞,
-  `7A` negate, `93` ^, `BA` ∑, and `E5` marking where ∑'s arguments start. For
-  example ζ(x) = ∑(1/n^x, n, 1, ∞) is stored as `n^(-x)`:
-  `E5 28 | 01 01 1F | 18 | 08 F0 7A 18 93 | BA`. The CBL sketch prints function
-  bodies as a token list using these; it does not rebuild the formula.
-- **ESP32 -> calculator, push (works).** With the calculator idle at the Home
-  screen, the ESP32 can send it a string variable unprompted, posing as another
-  Voyage 200 (id `0x88`): VAR -> ACK, CTS -> ACK, DATA -> ACK -> EOT -> ACK, using
-  the same string format as `SendCalc`. The calculator's OS only handles incoming
-  transfers while idle, so its first ACK can take a few seconds. An existing
-  variable of the same name is overwritten silently, without a prompt.
-- **ESP32 -> calculator, `Get` (works).** `Get x` sends a REQ (`0xA2`, id `0x89`,
-  data `00 00 00 00 <type> 00`) and waits. The working answer:
-  ```
-  calc -> REQ
-  ESP  -> ACK, VAR (id 0x19, type 04, no name)   calc -> ACK, CTS
-  ESP  -> ACK, DATA (count + " 7" + 00)          calc -> ACK
-  ```
-  The VAR header is `size (4 LE) | 04 | 00 | 00` and the DATA uses the same list
-  format as `Send`. `x` then holds `{7.}`: a list, stored as decimal numbers.
-  Differences from the link guide's sequence for answering a REQ, found by trial:
-  - **no name** in the header; with name `FF` the calculator never ACKs it and
-    then reports "Protected memory violation";
-  - **no EOT** at the end; sending one leaves "Error: link transmission";
-  - machine ID `0x19`; with `0x08` the calculator never ACKs the header.
-
-  The REQ's type byte was `1E` the first time and `04` once `x` held a list, so
-  it seems to be the type of the existing variable. The type in the answer's
-  header (`04` or `1E`) made no difference.
-
-### Character set
-
-The calculator does not use Unicode. Names and text use TI's own **single-byte**
-character set: one byte per character, 256 codes in total, with code 0 as the
-string terminator. `0x20`-`0x7E` match ASCII, and TI's own symbols (Greek letters,
-math symbols, accented letters) fill the codes from `0x80` up. Strings and variable
-names use the same codes.
-
-Symbols that look like characters on the calculator are often **tokens** instead:
-`sin(`, `√(`, `∫(` and so on are stored as expression tokens and never appear in
-the character set. The two tables are separate: ∑ is `8E` as a character but `BA`
-as an expression token.
-
-The `0x80`-`0x9F` block, from the published table (see Credits):
-
-| | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | A | B | C | D | E | F |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| **8x** | α | β | Γ | γ | Δ | δ | ε | ζ | θ | λ | ξ | ∏ | π | ρ | ∑ | σ |
-| **9x** | τ | φ | ψ | Ω | ω | ᴇ | ℯ | 𝐢 | ʳ | ᵀ | x̅ | y̅ | ≤ | ≠ | ≥ | ∠ |
-
-Captures confirm `80` α, `81` β, `83` γ, `85` δ, `86` ε (a string `"αβγδε"` arrived
-as `80 81 83 85 86`) and `87` ζ (a function named ζ). The 21 Greek characters at
-`80`-`94` match the 21 entries (1-9, A-L) of the calculator's Greek CHAR menu.
-TI includes only some of the Greek alphabet: there is no η, ι or κ, for example.
-
-**Remaining gap:** `0xA0`-`0xFF` is close to Latin-1 but not identical, and is not
-mapped yet; the sketches print those codes as `\xNN`. To check them, store a
-string containing the characters of interest, send it with `SendCalc`, and read
-the codes from the hex dump.
-
-### Open questions
-
-- The last byte of the VAR header is `00` for strings and `01` for functions whose
-  body uses the parameter, but `00` for `f(x)=∞`. Its meaning is unknown.
-- In function data, the byte before `40 DC` was `01` only for ζ (perhaps related
-  to ∑'s local variable `n`), and the meaning of `40` is unknown.
-- Byte order of integers wider than one byte has not been checked.
 
 ## Credits
 
@@ -390,3 +101,8 @@ the codes from the hex dump.
   calculator's link functions and variable types.
 - [TI calculator character sets](https://en.wikipedia.org/wiki/TI_calculator_character_sets)
   on Wikipedia for the TI-89/92/Voyage 200 character table.
+- [GCC4TI](https://github.com/debrouxl/gcc4ti) / TIGCC, the C compiler for the
+  calculator, and [TiLP](http://lpg.ticalc.org/prj_tilp/) for sending programs
+  to it.
+- [LibSSH-ESP32](https://github.com/ewpa/LibSSH-ESP32) by Ewan Parker, the
+  libssh port the SSH sessions run on.

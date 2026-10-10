@@ -16,7 +16,7 @@ Each section has two parts:
 - **Inferred:** what the observations suggest, but haven't shown directly.
 
 The starting points listed below come from the ESP32-to-calculator work in the
-[main README](../README.md#protocol-findings). They are to be checked against
+[link-partner notes](../docs/link-partner.md#protocol-findings-esp32--calculator). They are to be checked against
 the calculator-to-calculator captures.
 
 ## 1. Physical layer and timing
@@ -84,7 +84,7 @@ Observed (T01–T03):
 - **Every transfer packet uses `0x88`**, from both calculators: VAR, CTS, DATA,
   EOT and every ACK.
 - **The RDY check and its ACK use `0x89`**, both ways (T01). That is the same
-  ID a Voyage 200 uses for the CBL-style `Send` (main README).
+  ID a Voyage 200 uses for the CBL-style `Send` (link-partner notes).
 
 - **`SendChat` uses `0x89`** for every packet of its transfer (T18).
 
@@ -392,7 +392,7 @@ size (LE32) | type | name length | "a" | ?
   | Value | Seen for |
   |---|---|
   | `00` | numbers, strings, lists, matrices, programs, text, pictures, data |
-  | `01` | functions (T07a, and the main README's captures) |
+  | `01` | functions (T07a, and the link-partner notes' captures) |
   | `03` | the GDB `g1` (T08d) and the Flash app (T20) |
 
   Its meaning is unknown.
@@ -481,7 +481,7 @@ E9 | body | E5 | parameters | 00 | ?? | 40 | DC      (reading forwards)
   - `12 E4` is EndPrgm.
 
   Note that `7A` is a command number here, but was negation in an
-  expression (main README): the meaning of a byte depends on the tag around
+  expression (link-partner notes): the meaning of a byte depends on the tag around
   it.
 
 **Text (T08a):** `00 06 | 20 "hello" 00 | E0`.

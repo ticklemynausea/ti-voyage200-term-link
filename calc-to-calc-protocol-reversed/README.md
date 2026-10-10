@@ -14,9 +14,30 @@ so the calculators talk exactly as they would over TI's own cable.
 | [PROTOCOL.md](PROTOCOL.md) | The protocol as reversed from the captures. |
 | `captures/` | Raw logs, one per session. |
 
+## The sniffer
+
+- **Sampling.** One core samples the lines about every 50 ns, from IRAM with
+  interrupts off, and decodes the handshake. The other core assembles
+  packets, checks their checksums and prints them with timestamps.
+- **Line history.** It keeps a rolling history of line changes, printed
+  automatically around anything that looks wrong.
+- **Probe pulses.** It recognises the calculators' 200 µs probe pulses, so
+  they aren't counted as data.
+
+## What the tests cover
+
+All tests T00–T20 have been run. They cover:
+- the packet exchange for single and multiple variables;
+- the RDY check that VAR-LINK uses;
+- the data encoding of numbers, expressions, strings, lists, matrices,
+  functions, programs, text and pictures;
+- folders, overwrite prompts, aborts, `SendChat`, and a Flash app transfer.
+
+The open questions are listed at the end of PROTOCOL.md.
+
 ## Wiring
 
-Start from the wiring in the [main README](../README.md#wiring-stamp-s3) and add
+Start from the wiring in [hardware.md](../docs/hardware.md#wiring-stamp-s3) and add
 the second pigtail to the same breadboard rows:
 
 | Breadboard row | Already there | Add |
