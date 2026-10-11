@@ -47,6 +47,7 @@ Move the calculator to the ESP32's pigtail and run `term()`. The menu:
 | F4 | Local echo: nothing leaves the calculator |
 | F5 | Test pattern, with the time a full screen takes |
 | F6 | Key codes: shows each key's code |
+| F7 | Help: the keys and the menu, from `calc/term/help.txt` |
 | ESC | Exit |
 
 The menu's bottom row shows the Wi-Fi status, asked from the ESP32 every

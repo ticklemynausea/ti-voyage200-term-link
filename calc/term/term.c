@@ -18,6 +18,7 @@
 
 #include <tigcclib.h>
 #include "font.h"
+#include "help.h"
 
 #define COLS 60
 #define ROWS 21
@@ -702,6 +703,33 @@ static void drawStatus(const char *text, short len)
   for (col = 0; col < COLS; col++) drawCell(col, ROWS - 1, col < len ? text[col] : ' ', 1);
 }
 
+// The pages of help.txt, one screen each.
+static void showHelp(void)
+{
+  char line[COLS + 1];
+  short page;
+
+  for (page = 0; page < HELP_PAGES; page++) {
+    termPuts("\x1B" "c");
+    termPuts(helpPages[page]);
+    sprintf(line, " Help %d of %d    %s", page + 1, HELP_PAGES,
+            page + 1 < HELP_PAGES ? "any key: next page    ESC: menu" : "any key: menu");
+    drawStatus(line, strlen(line));
+    if (waitKey() == KEY_ESC) break;
+  }
+}
+
+#define FOOTER_MARGIN 2
+
+// Text that ends at the right margin of a row (rows count from 1).
+static void putRight(short row, const char *text)
+{
+  char seq[16];
+  sprintf(seq, "\x1B[%d;%dH", row, COLS + 1 - FOOTER_MARGIN - (short)strlen(text));
+  termPuts(seq);
+  termPuts(text);
+}
+
 // Returns 0 when the choice is to leave the program.
 static short menu(void)
 {
@@ -722,9 +750,11 @@ static short menu(void)
   termPuts("  \x1B[7m F4 \x1B[0m  Local echo    nothing leaves the calculator\r\n\r\n");
   termPuts("  \x1B[7m F5 \x1B[0m  Test pattern\r\n\r\n");
   termPuts("  \x1B[7m F6 \x1B[0m  Key codes\r\n\r\n");
+  termPuts("  \x1B[7m F7 \x1B[0m  Help          the keys in a session\r\n\r\n");
   termPuts("  \x1B[7m ESC \x1B[0m Exit\r\n\r\n");
-  termPuts("In a session: 2nd+ESC returns here, 2nd+plus lists symbols,\r\n");
-  termPuts("diamond+letter is Ctrl, diamond+up/down pages.");
+  termPuts("  Exit Shell: 2nd+ESC");
+  putRight(19, "2026 Mario Carneiro");
+  putRight(20, "http://mariocarneiro.info");
 
   drawStatus("Wi-Fi: asking the ESP32...", 26);
   linkCommand('w');
@@ -751,7 +781,7 @@ static short menu(void)
 
     if (!OSdequeue(&key, keyQueue)) {
       if (isQuitKey(key)) key = KEY_ESC;
-      if ((key >= KEY_F1 && key <= KEY_F6) || key == KEY_ESC) choice = key;
+      if ((key >= KEY_F1 && key <= KEY_F7) || key == KEY_ESC) choice = key;
     } else if (OSTimerExpired(USER_TIMER)) {
       if (++unanswered > 2) drawStatus("ESP32: no answer", 16);
       linkCommand('w');
@@ -769,6 +799,7 @@ static short menu(void)
     case KEY_F4: session(MODE_LOCAL); break;
     case KEY_F5: testPattern(); break;
     case KEY_F6: session(MODE_KEY_CODES); break;
+    case KEY_F7: showHelp(); break;
     case KEY_ESC: return 0;
   }
   return 1;

@@ -116,6 +116,7 @@ calc/                                C programs for the calculator (TIGCC / GCC4
   term/                              a 60x21 terminal on the link port, with a menu
     term.c                             screen, VT220 subset, keyboard
     font.txt, mkfont.py                the 3x5 font, drawn as text; its converter and character table
+    help.txt, mkhelp.py                the help pages shown by F7, as text, and their converter
 tools/
   shell.py                           joins a shell on the computer to the ESP32's port
 shell/

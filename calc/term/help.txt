@@ -1,0 +1,40 @@
+# The help shown by F7 in the terminal's menu. Plain ASCII, at most 60
+# columns and 20 lines a page. A line of dashes starts a new page. Lines
+# starting with # are left out.
+KEYS IN A SESSION
+
+2nd + ESC          back to the menu (diamond + ESC too)
+diamond + letter   Ctrl + letter
+                     diamond + C  stop the program
+                     diamond + D  end of input, log out
+                     diamond + Z  suspend
+                     diamond + L  redraw the screen
+                     diamond + I  Tab
+diamond + up/down  Page Up / Page Down
+2nd + up/down      Home / End (2nd + left/right too)
+2nd + plus         symbols the keyboard lacks: a strip
+                   opens on the bottom row, a letter picks
+F1 to F8           the function keys
+
+ENTER, ESC, the arrows and backspace do what they say.
+The divide key types /   Use the minus key for -
+Ctrl with a symbol (Ctrl-], Ctrl-\) cannot be typed.
+----
+THE MENU
+
+F1 Serial      a shell on the computer, over USB.
+               Run "make shell" there.
+F2 SSH         over the ESP32's Wi-Fi. Asks for the
+               password each time; it is never stored.
+F3 Settings    Wi-Fi network, SSH host and user.
+               Kept in the ESP32.
+F4 Local echo  typed keys are drawn, nothing is sent.
+F5 Test        what the screen can draw.
+F6 Key codes   the number of each key or combination.
+
+The menu's bottom row shows the Wi-Fi state.
+
+SEVERAL WINDOWS
+
+tmux and screen work. In tmux the prefix is diamond + B,
+then: C new window, N next, W list, B hide the bar.
