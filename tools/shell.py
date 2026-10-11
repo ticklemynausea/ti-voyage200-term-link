@@ -21,6 +21,7 @@ import fcntl
 import glob
 import os
 import pty
+import re
 import select
 import signal
 import struct
@@ -40,6 +41,38 @@ QUIT_KEY = 0x1D  # Ctrl-], as in telnet: Ctrl-C has to reach the shell
 # the calculator arrives doubled.
 WINDOW = 128
 ACK_EVERY = 32
+
+
+# Programs ask the terminal questions (what are you? how big is your window?)
+# and read the answer as if it were typed. The calculator never answers. This
+# window would, with its own size, and tmux then lays its screen out for this
+# window instead of the calculator's 60 x 21. So the questions are left out
+# of what is copied here. Window commands (CSI ... t) go the same way: they
+# would resize or move this window.
+QUESTIONS = re.compile(
+    rb"\x1b\[[?>=]?[0-9;]*(?:[cntx]|\$p)"          # device, status, window, mode reports
+    rb"|\x1b\[>[0-9;]*q|\x1b\[\?u"                 # terminal version, keyboard mode
+    rb"|\x1b\][0-9;]+\?(?:\x07|\x1b\\)"            # colours
+    rb"|\x1bP[+$]q[^\x1b]*\x1b\\"                  # settings and capabilities
+    rb"|\x05")                                     # answerback
+# The start of what could become one of them, cut off at the end of a read.
+UNFINISHED = re.compile(rb"\x1b(?:\[[?>=]?[0-9;]*\$?|\][0-9;]*\??\x1b?|P(?:[+$](?:q[^\x1b]*\x1b?)?)?)?$")
+
+
+class Mirror:
+    """Copies the command's output to this window, minus the questions."""
+
+    def __init__(self):
+        self.held = b""
+
+    def write(self, data):
+        data = QUESTIONS.sub(b"", self.held + data)
+        cut = UNFINISHED.search(data)
+        self.held = data[cut.start():] if cut else b""
+        if cut:
+            data = data[:cut.start()]
+        if data:
+            os.write(1, data)
 
 
 def open_serial(path):
@@ -96,6 +129,7 @@ def main():
         keyboard_attrs = termios.tcgetattr(keyboard)
         tty.setraw(keyboard)
     to_calc = b""
+    mirror = Mirror()
     in_flight = 2  # the reset sequence sent above
     after_mark = False
     exited = False  # the command is gone; what is queued still has to go out
@@ -134,7 +168,7 @@ def main():
                 exited = not data
                 to_calc += data
                 if args.mirror:
-                    os.write(1, data)
+                    mirror.write(data)
             if serial in writable:
                 sent = os.write(serial, to_calc[:WINDOW - in_flight])
                 to_calc = to_calc[sent:]
