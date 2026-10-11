@@ -25,10 +25,12 @@ esp32\:term\:flash:
 	arduino-cli compile --upload -p $(PORT) --fqbn $(FQBN) esp32/esp32_tilink_term
 
 # Only builds. Flashing a Cardputer over USB would overwrite M5 Launcher.
+# The larger app partition is for the compiler's size check: with the screen's
+# library the sketch no longer fits the default 1.3 MB.
 CARDPUTER_BUILD = build/cardputer
 
 esp32\:term\:cardputer:
-	arduino-cli compile --fqbn esp32:esp32:m5stack_cardputer --output-dir $(CARDPUTER_BUILD) esp32/esp32_tilink_term
+	arduino-cli compile --fqbn esp32:esp32:m5stack_cardputer:PartitionScheme=default_8MB --output-dir $(CARDPUTER_BUILD) esp32/esp32_tilink_term
 	@echo "Copy $(CARDPUTER_BUILD)/esp32_tilink_term.ino.bin to the SD card and install it from M5 Launcher."
 
 shell:

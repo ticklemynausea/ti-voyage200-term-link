@@ -54,8 +54,22 @@ are built for. The calculator connects to the Grove port:
 
 `make esp32:term:cardputer` builds
 `build/cardputer/esp32_tilink_term.ino.bin` and flashes nothing: copy the
-file to the SD card and install it from M5 Launcher. Not yet tried on a
-Cardputer.
+file to the SD card and install it from M5 Launcher. It needs one more
+library, used only by this build: `arduino-cli lib install M5Cardputer`.
+
+The Cardputer's screen shows what the bridge is doing, on three pages. Any
+key on its keyboard goes to the next page; `1`, `2` and `3` jump to one.
+Nothing typed there is sent to the shell.
+
+| Page | Shows |
+|---|---|
+| Status | the mode (menu, Serial or SSH), the SSH target or whether the computer is attached, the Wi-Fi network with signal and address, the calculator's presence, bytes per second each way |
+| Link | byte counts and rates each way, dropped bytes, resends, link errors, time since the last byte, uptime |
+| Log | the last events with the time since power-up: mode changes, Wi-Fi and SSH messages, the calculator or computer coming and going |
+
+Every page has the battery level in its top bar.
+
+Not yet tried on a Cardputer.
 
 ## Wiring check
 
