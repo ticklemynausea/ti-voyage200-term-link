@@ -1,0 +1,5 @@
+term vt100
+
+# A bar on the bottom row listing the windows: the current one in brackets
+# and not reversed, the time on the right. It takes one of the 21 rows.
+# hardstatus alwayslastline "%{=r} %-w%{-r}[%n %t]%{+r}%+w %=%c "
