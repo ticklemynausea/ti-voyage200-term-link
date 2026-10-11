@@ -15,8 +15,8 @@
 // The pins follow the board the sketch is built for.
 #if defined(ARDUINO_M5STACK_CARDPUTER)
 // M5Stack Cardputer: the two signal pins of its Grove port.
-const uint8_t PIN_TIP  = 1;   // red   (via 220 ohm)
-const uint8_t PIN_RING = 2;   // white (via 220 ohm)
+const uint8_t PIN_TIP  = 2;   // red,   on the Grove cable's yellow wire (via 220 ohm)
+const uint8_t PIN_RING = 1;   // white, on the Grove cable's white wire  (via 220 ohm)
 #else
 // M5Stack Stamp S3. A classic ESP32 would use 25 / 26.
 const uint8_t PIN_TIP  = 1;   // red   (via 220 ohm)
