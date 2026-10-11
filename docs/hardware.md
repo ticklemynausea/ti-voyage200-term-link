@@ -39,6 +39,57 @@ Things learned the hard way:
 - Stranded pigtail wires make poor breadboard contacts; tin them or solder them
   to header pins.
 
+## M5Stack Cardputer
+
+The terminal and wiring-check sketches also build for the Cardputer, whose
+battery makes the setup portable. They pick their pins from the board they
+are built for. The calculator connects to the Grove port:
+
+| Grove pin | Grove wire | Through | Pigtail wire | Plug part |
+|---|---|---|---|---|
+| G2 | yellow | 220 ohm | red | Tip |
+| G1 | white | 220 ohm | white | Ring |
+| GND | black | direct | black | Sleeve |
+| 5 V | red | not connected | | |
+
+The wiring check below tells tip from ring: on `SendCalc` with nothing
+answering, the calculator holds the tip low for about two seconds.
+
+The Grove cable's red wire carries 5 V: cut it or insulate its end. G1 and
+G2 are 3.3 V pins of the Stamp S3 inside, the same as on the bare Stamp, so
+a calculator whose lines idle at 3.3 V needs no level shifter here either.
+
+`make esp32:term:cardputer` builds
+`build/cardputer/esp32_tilink_term.ino.bin` and flashes nothing: copy the
+file to the SD card and install it from M5 Launcher. It needs one more
+library, used only by this build: `arduino-cli lib install M5Cardputer`.
+
+The file can also be flashed over USB, which replaces M5 Launcher on the
+Cardputer (M5Burner puts it back):
+
+```sh
+arduino-cli upload -p /dev/cu.usbmodemXXXX \
+  --fqbn esp32:esp32:m5stack_cardputer:FlashSize=8M,PartitionScheme=default_8MB \
+  --input-dir build/cardputer
+```
+
+If the upload cannot connect, hold G0 while pressing reset and try again.
+
+The Cardputer's screen shows what the bridge is doing, on three pages. Any
+key on its keyboard goes to the next page; `1`, `2` and `3` jump to one.
+Nothing typed there is sent to the shell.
+
+| Page | Shows |
+|---|---|
+| Status | the mode (menu, Serial or SSH), the SSH target or whether the computer is attached, the Wi-Fi network with signal and address, the calculator's presence, bytes per second each way |
+| Link | byte counts and rates each way, dropped bytes, resends, link errors, time since the last byte, uptime |
+| Log | the last events with the time since power-up: mode changes, Wi-Fi and SSH messages, the calculator or computer coming and going |
+
+Every page has the battery level in its top bar.
+
+Tried on a Cardputer: the pages show on its screen and the calculator
+connects through the Grove cable.
+
 ## Wiring check
 
 `esp32/esp32_tilink_linetest/` prints the tip and ring levels whenever they

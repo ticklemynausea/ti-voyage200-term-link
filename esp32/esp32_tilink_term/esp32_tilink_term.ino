@@ -39,15 +39,23 @@
  */
 #include <Preferences.h>
 #include <WiFi.h>
+#include "Display.h"
 #include "Ssh.h"
 #include "TiLink.h"
 
 // libssh needs far more stack than the default 8 KB.
 SET_LOOP_TASK_STACK_SIZE(48 * 1024);
 
-// Classic ESP32: 25 / 26.  M5Stack Stamp S3: 1 / 5.
+// The pins follow the board the sketch is built for.
+#if defined(ARDUINO_M5STACK_CARDPUTER)
+// M5Stack Cardputer: the two signal pins of its Grove port.
+const uint8_t PIN_TIP  = 2;   // red,   on the Grove cable's yellow wire
+const uint8_t PIN_RING = 1;   // white, on the Grove cable's white wire
+#else
+// M5Stack Stamp S3. A classic ESP32 would use 25 / 26.
 const uint8_t PIN_TIP  = 1;
 const uint8_t PIN_RING = 5;
+#endif
 
 // How long a byte may wait for the calculator to start taking it.
 const uint32_t SEND_PATIENCE_MS = 5000;
@@ -93,6 +101,32 @@ const uint8_t ACK_EVERY = 32;
 bool paced = false;
 uint8_t unacked = 0;
 
+// ---------- the Cardputer's screen ----------
+
+// Does nothing on a board without a screen. Called between bytes, never in
+// the middle of one.
+void showStatus() {
+  if (!Display::due()) return;
+  Display::Status s;
+  s.mode = backend == BACKEND_SSH ? Display::MODE_SSH
+         : backend == BACKEND_SERIAL ? Display::MODE_SERIAL : Display::MODE_MENU;
+  s.asking = asking;
+  s.computerAttached = rawMode;
+  s.calcPresent = !linkDown;
+  s.linesIdle = ti.lineIdle();
+  s.toCalc = toCalc;
+  s.fromCalc = fromCalc;
+  s.dropped = dropped;
+  s.resends = retries;
+  s.errors = ti.errors;
+  if (target.user.length() && target.host.length()) s.sshTarget = target.user + "@" + target.host;
+  s.wifiName = target.wifiName;
+  s.wifiUp = WiFi.status() == WL_CONNECTED;
+  s.rssi = s.wifiUp ? WiFi.RSSI() : 0;
+  if (s.wifiUp) s.ip = WiFi.localIP().toString();
+  Display::update(s);
+}
+
 // ---------- calculator -> backend ----------
 
 void forwardFromCalc(uint8_t b) {
@@ -118,9 +152,11 @@ void reportLinkError(const char *what) {
 
 // Takes everything the calculator is sending right now.
 void pumpFromCalc() {
+  showStatus();
   if (linkDown) {
     if (!ti.lineIdle()) return;
     linkDown = false;
+    Display::log("calculator is back");
     if (!rawMode) Serial.println("Link is back.");
   }
   for (;;) {
@@ -129,6 +165,7 @@ void pumpFromCalc() {
     if (b < 0) {
       if (ti.lastErrStage == 2 && ti.lastErrBit == 0) {
         linkDown = true;
+        Display::log("calculator off or unplugged");
         if (!rawMode) Serial.println("\n! Both lines are low: is the calculator on and plugged in?");
       } else {
         reportLinkError("receive error");
@@ -178,6 +215,7 @@ bool sendText(const char *s) {
 
 // A status line for the calculator's screen, copied to the Serial Monitor.
 void sayToCalc(const char *text) {
+  if (text[0] != '[') Display::log(text);  // not the "[2nd+ESC ...]" hints
   if (!rawMode) Serial.println(text);
   if (sendText(text)) sendText("\r\n");
 }
@@ -307,6 +345,8 @@ void runCalcCommand(char command) {
   if (backend == BACKEND_SSH) Ssh::close();
   backend = BACKEND_NONE;
 
+  Display::log(command == 's' ? "calculator: Serial" : command == 'h' ? "calculator: SSH"
+               : command == 'c' ? "calculator: Settings" : "calculator: menu");
   if (command == 's') {
     backend = BACKEND_SERIAL;
   } else if (command == 'h') {
@@ -315,6 +355,7 @@ void runCalcCommand(char command) {
       sayToCalc("[2nd+ESC for the menu]");
     } else if (Ssh::open(target, sayToCalc, askOnCalc)) {
       backend = BACKEND_SSH;
+      Display::log("SSH session open");
     } else if (!pendingCount) {
       sayToCalc("[2nd+ESC for the menu]");
     }
@@ -356,6 +397,7 @@ void pumpSsh() {
     if (!sendToCalc(buf[i])) break;
   }
   if (n < 0) {
+    Display::log("SSH closed by the host");
     Ssh::close();
     backend = BACKEND_NONE;
     sayToCalc("\r\n[connection closed, 2nd+ESC for the menu]");
@@ -422,6 +464,7 @@ void handleLine(const String &text) {
 void setup() {
   Serial.setRxBufferSize(1024);
   Serial.begin(115200);
+  Display::begin();  // before the link: the screen's library sets up pins of its own
   ti.begin();
   loadSettings();
   // Join the stored network in the background, so it is up before it is needed.
@@ -439,6 +482,7 @@ void setup() {
 void handleControl(const String &word) {
   if (word == "raw") rawMode = paced = true;
   else if (word == "monitor") rawMode = paced = false;
+  Display::log(rawMode ? "computer attached" : "computer detached");
   unacked = 0;
   line = "";
 }
