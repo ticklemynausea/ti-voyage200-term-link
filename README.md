@@ -1,4 +1,4 @@
-# ti-voyager-arduino-link
+# TI Voyage 200 Terminal Link
 
 A **TI Voyage 200** graphing calculator as a terminal to real computers, and
 the reverse engineering of its link port that led there. An ESP32 (Arduino
