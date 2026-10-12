@@ -11,7 +11,8 @@ Glyph codes, as term.c uses them:
     32-127   ASCII, drawn from font.txt. 127 stands for "no glyph for this".
     128-143  box-drawing lines: 128 + a mask of the arms that leave the
              centre of the cell (1 up, 2 down, 4 left, 8 right)
-    144-     block elements: halves, eighths, quadrants and shades
+    144-     letters with their accent (see ACCENTS_ABOVE), then the block
+             elements: halves, eighths, quadrants and shades
 
 Text letters keep the fourth column and the sixth row blank. Lines and blocks
 use the whole cell, so that they join up with their neighbours.
@@ -43,6 +44,22 @@ LATIN_AS = {
     "ĸ": "k", "Ł": "L", "ł": "l", "ŉ": "n", "Ŋ": "N", "ŋ": "n", "Œ": "O",
     "œ": "o", "Ŧ": "T", "ŧ": "t",
 }
+
+# The accents that fit in one row of three pixels, by their combining mark.
+# One above takes the top row of the cell, which most small letters leave
+# empty; on an i it takes the place of the dot. The cedilla takes the gap row
+# below the letter. A letter with no room for its accent is drawn plain: the
+# capitals, and the small letters with an ascender. So is one whose accent
+# would only make it look taller, as two dots do on a u. Some accents end
+# up looking alike: on an a, the grave and the circumflex.
+ACCENTS_ABOVE = {
+    "\u0301": "..#",  # acute
+    "\u0300": "#..",  # grave
+    "\u0302": ".#.",  # circumflex
+    "\u0303": "#.#",  # tilde: a bar instead made the a look like a 5
+    "\u0308": "#.#",  # diaeresis, the same
+}
+ACCENTS_BELOW = {"\u0327": ".#."}  # cedilla
 
 # Everything else, grouped by the ASCII character that stands in for it.
 OTHERS_AS = {
@@ -87,6 +104,34 @@ def read_font(path):
     if missing:
         sys.exit(f"{path}: missing glyphs: {missing}")
     return [glyphs[chr(c)] for c in range(32, 128)]
+
+
+def accented_glyph(ch, glyphs):
+    """The glyph of a letter with its accent drawn, or None if it has to go without."""
+    parts = unicodedata.normalize("NFD", ch)
+    if len(parts) != 2 or not "A" <= parts[0] <= "z":
+        return None
+    letter, mark = parts
+    plain = glyphs[ord(letter) - 32]
+    rows = list(plain)
+    if mark in ACCENTS_ABOVE and (not rows[0] or letter == "i"):
+        row, pixels = 0, ACCENTS_ABOVE[mark]
+    elif mark in ACCENTS_BELOW and not rows[5]:
+        row, pixels = 5, ACCENTS_BELOW[mark]
+    else:
+        return None
+    bits = sum(8 >> i for i, c in enumerate(pixels) if c == "#")
+    if row == 0 and letter != "i":
+        middle = 4
+        if bits == rows[1] and bits != middle:
+            return None  # two dots on a u
+        # A pixel right above a stroke reads as part of the letter: a grave
+        # turns an a into a b. It moves to the middle, always on the left
+        # and on the right when the middle is free.
+        if bits & rows[1] and bits != middle and (bits == 8 or not middle & rows[1]):
+            bits = middle
+    rows[row] = bits
+    return None if tuple(rows) == plain else tuple(rows)  # a circumflex on an i is its dot
 
 
 def bitmap(filled):
@@ -153,6 +198,10 @@ def build(font_path):
     latin = []
     for cp in LATIN:
         ch = chr(cp)
+        accented = accented_glyph(ch, glyphs)
+        if accented:
+            latin.append(code_for(accented))
+            continue
         base = LATIN_AS.get(ch) or unicodedata.normalize("NFKD", ch)[0]
         if not " " <= base <= "~":
             sys.exit(f"no stand-in for U+{cp:04X} {unicodedata.name(ch)}")

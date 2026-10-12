@@ -777,7 +777,12 @@ static void showHelp(void)
 static void putRight(short row, const char *text)
 {
   char seq[16];
-  sprintf(seq, "\x1B[%d;%dH", row, COLS + 1 - FOOTER_MARGIN - (short)strlen(text));
+  short len = 0;
+  const char *p;
+
+  // Characters, not bytes: the bytes that continue a UTF-8 character are not counted.
+  for (p = text; *p; p++) if ((*p & 0xC0) != 0x80) len++;
+  sprintf(seq, "\x1B[%d;%dH", row, COLS + 1 - FOOTER_MARGIN - len);
   termPuts(seq);
   termPuts(text);
 }
@@ -852,8 +857,8 @@ static short menu(void)
   termPuts("  \x1B[7m F5 \x1B[0m  Help          the keys in a session\r\n\r\n");
   termPuts("  \x1B[7m ESC \x1B[0m Exit\r\n\r\n");
   termPuts("  Exit Shell: 2nd+ESC");
-  putRight(19, "2026 Mario Carneiro");
-  putRight(20, "http://mariocarneiro.info");
+  putRight(18, "2026 M\xC3\xA1rio Carneiro (@ticklemynausea)");  // a with an acute accent
+  putRight(19, "http://mariocarneiro.info");
 
   drawStatus("Wi-Fi: asking the ESP32...", 26);
   linkCommand('w');

@@ -245,15 +245,15 @@ the Home screen and other programs are out of its reach.
 
 ## Characters
 
-The shell's text is read as UTF-8. With 3x5 pixels per letter there is no room
-for accents, so the terminal draws what it can and stands in for the rest:
+The shell's text is read as UTF-8. With 3x5 pixels per letter there is little
+room for accents, so the terminal draws what it can and stands in for the rest:
 
 | Characters | Drawn as |
 |---|---|
 | ASCII | its own glyph, from `font.txt` |
 | Box drawing (U+2500 to U+257F), as `tree` and `mc` use | real lines that join from cell to cell; heavy, double and dashed lines all come out as plain ones |
 | Block elements (U+2580 to U+259F), as progress bars use | halves, eighths, quadrants and shades, to the nearest pixel |
-| Latin letters with accents (U+00A0 to U+017F) | the plain letter: `é` as `e`, `ç` as `c`, `ß` as `s` |
+| Latin letters with accents (U+00A0 to U+017F) | the letter with its accent where the cell has room: acute, grave, circumflex, tilde and diaeresis as one row of pixels above a small letter (`á`, `à`, `ê`, `õ`), the cedilla as a pixel below (`ç`, `Ç`). Tilde and diaeresis look the same. The rest are drawn plain: accented capitals (`É` as `E`), small letters with an ascender, `ü`, other accents, `ß` as `s` |
 | Curly quotes, dashes, arrows, bullets, ticks and the like | the nearest ASCII character: `→` as `>`, `✓` as `v`, `…` as `.` |
 | Braille patterns, as spinners use | `.` |
 | Accents sent as separate marks, zero-width marks | nothing |
