@@ -33,7 +33,7 @@ Programs confirmed to work on it:
 These two are screenshots: the calculator sends its own screen through the
 ESP32 when 2nd + APPS is pressed.
 
-![The Voyage 200 runs calc/term and connects over its link port to an ESP32 running esp32_tilink_term, which reaches a shell on the computer over USB serial or a shell on another host over Wi-Fi and SSH](docs/pics/diagram.svg)
+![The Voyage 200 runs calc/term and connects over its link port to an ESP32 running esp32_tilink_term, which reaches a shell on the computer over USB serial and tools/shell.py, or a shell on another host over Wi-Fi and SSH](docs/pics/diagram.svg)
 
 This is a hobby project and a record of experiments, not a finished product.
 Treat the protocol notes as findings from these calculators, not as a

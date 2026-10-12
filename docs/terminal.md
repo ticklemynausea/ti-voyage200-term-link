@@ -5,11 +5,7 @@ raw bytes over the link port. TI's packet protocol is not involved. The ESP32
 carries the bytes to a shell, either on the computer it is plugged into or on
 any host it can reach by SSH over Wi-Fi.
 
-```
-Voyage 200             ESP32
-calc/term  <- link ->  esp32_tilink_term  <- USB serial ->  tools/shell.py -> shell
-                                          <- Wi-Fi, SSH ->  a shell on another host
-```
+![The Voyage 200 runs calc/term and connects over its link port to an ESP32 running esp32_tilink_term, which reaches a shell on the computer over USB serial and tools/shell.py, or a shell on another host over Wi-Fi and SSH](pics/diagram.svg)
 
 - **`calc/term/`** is the calculator program (about 12 KB), built with
   TIGCC / GCC4TI. It opens on a menu that picks where the session goes. It
