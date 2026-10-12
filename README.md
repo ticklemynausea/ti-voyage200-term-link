@@ -7,6 +7,8 @@ the calculator draws the text and reads the keys. The ESP32 is either an
 M5Stack Stamp S3 on a breadboard or an M5Stack Cardputer, whose battery and
 screen make the setup portable.
 
+**tl;dr**: makes a terminal-based cyberdeck out of a TI Voyage 200 calculator without any physical modifications to it
+
 ![A Voyage 200 running Claude Code, wired to an M5Stack Stamp S3 on a breadboard](docs/pics/stamp-s3-claude-code.png)
 
 A 12 KB C program turns the calculator into a 60x21 VT220
