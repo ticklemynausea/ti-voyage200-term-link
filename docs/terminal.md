@@ -11,7 +11,7 @@ calc/term  <- link ->  esp32_tilink_term  <- USB serial ->  tools/shell.py -> sh
                                           <- Wi-Fi, SSH ->  a shell on another host
 ```
 
-- **`calc/term/`** is the calculator program (about 9 KB), built with
+- **`calc/term/`** is the calculator program (about 12 KB), built with
   TIGCC / GCC4TI. It opens on a menu that picks where the session goes. It
   draws its own fixed-width 3x5 font, because the calculator's small font is
   proportional. The glyphs are drawn as text in `font.txt`. It handles the
@@ -306,3 +306,7 @@ This is about the screen only. The keyboard still types ASCII.
   89% of the default 1.3 MB program partition.
 
 For the wiring and the hardware, see [hardware.md](hardware.md).
+
+---
+
+[Project overview](../README.md) · [Getting started](getting-started.md) · [The terminal](terminal.md) · [tmux and screen](tmux-and-screen.md) · [Hardware](hardware.md) · [Link partner](link-partner.md) · [Repository](repository.md)

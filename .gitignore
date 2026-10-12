@@ -5,3 +5,4 @@ screenshots/
 *.elf
 *.map
 __pycache__/
+docs/pics/*.HEIC

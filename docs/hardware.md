@@ -116,3 +116,7 @@ Replace the port with your own (`arduino-cli board list`). The sketches also
 open in the Arduino IDE. The terminal sketch also needs the SSH library:
 `arduino-cli lib install LibSSH-ESP32`. For it there is a shortcut,
 `make esp32_stamps3:term:flash`, which finds the port by itself.
+
+---
+
+[Project overview](../README.md) · [Getting started](getting-started.md) · [The terminal](terminal.md) · [tmux and screen](tmux-and-screen.md) · [Hardware](hardware.md) · [Link partner](link-partner.md) · [Repository](repository.md)
