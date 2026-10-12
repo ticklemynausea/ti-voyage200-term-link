@@ -1,9 +1,11 @@
 # ti-voyager-arduino-link
 
 A **TI Voyage 200** graphing calculator as a terminal to real computers, and
-the reverse engineering of its link port that led there. An ESP32 (M5Stack
-Stamp S3, Arduino framework) sits on the calculator's 2.5 mm link port and
-does the networking; the calculator draws the text and reads the keys.
+the reverse engineering of its link port that led there. An ESP32 (Arduino
+framework) sits on the calculator's 2.5 mm link port and does the networking;
+the calculator draws the text and reads the keys. The ESP32 is either an
+M5Stack Stamp S3 on a breadboard or an M5Stack Cardputer, whose battery and
+screen make the setup portable.
 
 The headline: a 9 KB C program turns the calculator into a 60x21 VT220
 terminal. From its menu you open a shell on the computer the ESP32 is plugged
@@ -62,11 +64,22 @@ hardware is listed in [docs/hardware.md](docs/hardware.md).
 
 ## Quick start: the terminal
 
-Wire the ESP32 to the link port as in [docs/hardware.md](docs/hardware.md).
-With the prerequisites above in place:
+The ESP32 side comes in two forms. Both run the same sketch, which picks
+its pins from the board it is built for:
+
+| | Stamp S3 on a breadboard | Cardputer |
+|---|---|---|
+| Calculator connects to | G1 and G5, on jumper wires | the Grove port (G2 and G1) |
+| Power | USB | its battery, or USB |
+| Screen | none | status pages: mode, Wi-Fi, link, log |
+| Extra library | none | M5Cardputer |
+| Build and flash | `make esp32:term:flash` | `make esp32:term:cardputer:flash`, or `make esp32:term:cardputer` for a file that M5 Launcher installs |
+| Wiring | [hardware.md](docs/hardware.md#wiring-stamp-s3) | [hardware.md](docs/hardware.md#m5stack-cardputer) |
+
+Wire one of them to the link port. With the prerequisites above in place:
 
 ```sh
-make esp32:term:flash    # compile and flash the ESP32
+make esp32:term:flash    # compile and flash the ESP32 (the Stamp S3; see the table for the Cardputer)
 make calc:term:send      # build term.v2z and send it (SilverLink cable)
 make shell               # optional: a shell on this computer for the Serial entry
 ```

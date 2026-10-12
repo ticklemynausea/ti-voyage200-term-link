@@ -4,8 +4,15 @@
 
 - TI Voyage 200 (the TI-89 / TI-92 Plus family should behave the same way);
   two of them for the calculator-to-calculator sniffer
-- M5Stack Stamp S3 (ESP32-S3). Other ESP32 boards should work with different
-  pins, except that the c2c sniffer uses ESP32-S3 features.
+- One ESP32, either of:
+  - M5Stack Stamp S3 (ESP32-S3) on a breadboard: [wiring](#wiring-stamp-s3).
+    Every sketch here runs on it.
+  - M5Stack Cardputer, which has a Stamp S3 inside plus a battery, a screen
+    and a keyboard: [wiring](#m5stack-cardputer). The terminal and the
+    wiring check are built for it.
+
+  Other ESP32 boards should work with different pins, except that the c2c
+  sniffer uses ESP32-S3 features.
 - 2.5 mm stereo (TRS) pigtail cables: one per calculator. The plug's moulded
   collar may need shaving down to seat fully in the Voyage 200's recessed port.
 - Two 220 ohm resistors
@@ -64,14 +71,10 @@ a calculator whose lines idle at 3.3 V needs no level shifter here either.
 file to the SD card and install it from M5 Launcher. It needs one more
 library, used only by this build: `arduino-cli lib install M5Cardputer`.
 
-The file can also be flashed over USB, which replaces M5 Launcher on the
-Cardputer (M5Burner puts it back):
-
-```sh
-arduino-cli upload -p /dev/cu.usbmodemXXXX \
-  --fqbn esp32:esp32:m5stack_cardputer:FlashSize=8M,PartitionScheme=default_8MB \
-  --input-dir build/cardputer
-```
+`make esp32:term:cardputer:flash` builds it and flashes it over USB
+instead, which replaces M5 Launcher on the Cardputer (M5Burner puts it
+back). Have only one of the two boards plugged in: both targets take the
+first ESP32 port they find.
 
 If the upload cannot connect, hold G0 while pressing reset and try again.
 
