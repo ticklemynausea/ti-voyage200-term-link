@@ -73,15 +73,15 @@ its pins from the board it is built for:
 | Power | USB | its battery, or USB |
 | Screen | none | status pages: mode, Wi-Fi, link, log |
 | Extra library | none | M5Cardputer |
-| Build and flash | `make esp32:term:flash` | `make esp32:term:cardputer:flash`, or `make esp32:term:cardputer` for a file that M5 Launcher installs |
+| Build and flash | `make esp32_stamps3:term:flash` | `make esp32_cardputer:term:flash`, or `make esp32_cardputer:term:build` for a file that M5 Launcher installs |
 | Wiring | [hardware.md](docs/hardware.md#wiring-stamp-s3) | [hardware.md](docs/hardware.md#m5stack-cardputer) |
 
 Wire one of them to the link port. With the prerequisites above in place:
 
 ```sh
-make esp32:term:flash    # compile and flash the ESP32 (the Stamp S3; see the table for the Cardputer)
-make calc:term:send      # build term.v2z and send it (SilverLink cable)
-make shell               # optional: a shell on this computer for the Serial entry
+make esp32_stamps3:term:flash   # compile and flash the ESP32 (or esp32_cardputer:term:flash)
+make calc:term:send             # build term.v2z and send it (SilverLink cable)
+make shell                      # optional: a shell on this computer for the Serial entry
 ```
 
 Run `term()` on the calculator. F3 opens the settings: the Wi-Fi network, the SSH host, and a key for

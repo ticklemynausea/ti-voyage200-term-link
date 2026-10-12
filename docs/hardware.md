@@ -66,12 +66,12 @@ The Grove cable's red wire carries 5 V: cut it or insulate its end. G1 and
 G2 are 3.3 V pins of the Stamp S3 inside, the same as on the bare Stamp, so
 a calculator whose lines idle at 3.3 V needs no level shifter here either.
 
-`make esp32:term:cardputer` builds
-`build/cardputer/esp32_tilink_term.ino.bin` and flashes nothing: copy the
+`make esp32_cardputer:term:build` builds
+`build/cardputer-term/esp32_tilink_term.ino.bin` and flashes nothing: copy the
 file to the SD card and install it from M5 Launcher. It needs one more
 library, used only by this build: `arduino-cli lib install M5Cardputer`.
 
-`make esp32:term:cardputer:flash` builds it and flashes it over USB
+`make esp32_cardputer:term:flash` builds it and flashes it over USB
 instead, which replaces M5 Launcher on the Cardputer (M5Burner puts it
 back). Have only one of the two boards plugged in: both targets take the
 first ESP32 port they find.
@@ -98,6 +98,8 @@ connects through the Grove cable.
 `esp32/esp32_tilink_linetest/` prints the tip and ring levels whenever they
 change, plus a periodic heartbeat. It never drives the lines. Use it before
 any experiment to check the wiring and the ground connection.
+`make esp32_stamps3:linetest:flash` or `make esp32_cardputer:linetest:flash`
+builds and flashes it.
 
 ## Building and flashing
 
@@ -113,4 +115,4 @@ arduino-cli monitor -p /dev/cu.usbmodemXXXX -c baudrate=115200
 Replace the port with your own (`arduino-cli board list`). The sketches also
 open in the Arduino IDE. The terminal sketch also needs the SSH library:
 `arduino-cli lib install LibSSH-ESP32`. For it there is a shortcut,
-`make esp32:term:flash`, which finds the port by itself.
+`make esp32_stamps3:term:flash`, which finds the port by itself.

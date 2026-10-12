@@ -32,9 +32,9 @@ Needs `tigcc`, `python3`, `tilp` and `arduino-cli` on the PATH, and the SSH
 library once: `arduino-cli lib install LibSSH-ESP32`. From the repo root:
 
 ```sh
-make calc:term:send      # build term.v2z and send it (SilverLink cable)
-make esp32:term:flash    # compile and flash the bridge sketch
-make shell               # for the Serial entry: the login shell; or: make shell CMD=top
+make calc:term:send             # build term.v2z and send it (SilverLink cable)
+make esp32_stamps3:term:flash   # compile and flash the bridge sketch (or esp32_cardputer:term:flash)
+make shell                      # for the Serial entry: the login shell; or: make shell CMD=top
 ```
 
 Move the calculator to the ESP32's pigtail and run `term()`. The menu:
