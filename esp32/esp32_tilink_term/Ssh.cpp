@@ -16,11 +16,19 @@ const uint32_t WIFI_TIMEOUT_MS = 20000;
 const long SSH_TIMEOUT_S = 15;
 const char PREFS_NAMESPACE[] = "tilink";
 const char PREFS_HOST_KEY[] = "hostkey";
+const char PREFS_USER_KEY[] = "sshkey";
+const char KEY_COMMENT[] = "voyage200";
 const int PASSWORD_TRIES = 3;
 
 ssh_session session = nullptr;
 ssh_channel channel = nullptr;
 bool libraryStarted = false;
+
+void startLibrary() {
+  if (libraryStarted) return;
+  libssh_begin();
+  libraryStarted = true;
+}
 
 void sayf(Ssh::SayFn say, const char *format, ...) {
   char line[160];
@@ -69,6 +77,53 @@ bool fail(Ssh::SayFn say, const char *what) {
   return false;
 }
 
+// Joins Wi-Fi, connects and checks the host's key. Leaves the session open
+// and not logged in.
+bool connect(const Ssh::Target &target, Ssh::SayFn say) {
+  Ssh::close();
+  if (!Ssh::joinWifi(target, say)) return false;
+  startLibrary();
+
+  sayf(say, "Connecting to %s@%s...", target.user.c_str(), target.host.c_str());
+  session = ssh_new();
+  if (!session) return fail(say, "SSH");
+  unsigned int port = target.port;
+  long timeout = SSH_TIMEOUT_S;
+  ssh_options_set(session, SSH_OPTIONS_HOST, target.host.c_str());
+  ssh_options_set(session, SSH_OPTIONS_PORT, &port);
+  ssh_options_set(session, SSH_OPTIONS_USER, target.user.c_str());
+  ssh_options_set(session, SSH_OPTIONS_TIMEOUT, &timeout);
+
+  if (ssh_connect(session) != SSH_OK) return fail(say, "Connection failed");
+  if (!hostKeyAccepted(target.host, say)) { Ssh::close(); return false; }
+  return true;
+}
+
+bool loginWithPassword(const Ssh::Target &target, Ssh::SayFn say, Ssh::AskFn ask) {
+  String prompt = target.user + "@" + target.host + "'s password: ";
+  for (int attempt = 1;; attempt++) {
+    String password;
+    if (!ask(prompt.c_str(), true, password)) { Ssh::close(); return false; }
+    int rc = ssh_userauth_password(session, nullptr, password.c_str());
+    if (rc == SSH_AUTH_SUCCESS) return true;
+    if (rc != SSH_AUTH_DENIED || attempt == PASSWORD_TRIES) return fail(say, "Login failed");
+    say("Permission denied, try again.");
+  }
+}
+
+// The stored private key, or nullptr. The caller frees it.
+ssh_key loadKey() {
+  Preferences prefs;
+  prefs.begin(PREFS_NAMESPACE, true);
+  String text = prefs.getString(PREFS_USER_KEY, "");
+  prefs.end();
+  if (!text.length()) return nullptr;
+  startLibrary();
+  ssh_key key = nullptr;
+  if (ssh_pki_import_privkey_base64(text.c_str(), nullptr, nullptr, nullptr, &key) != SSH_OK) return nullptr;
+  return key;
+}
+
 }  // namespace
 
 bool Ssh::joinWifi(const Target &target, SayFn say) {
@@ -91,41 +146,128 @@ bool Ssh::joinWifi(const Target &target, SayFn say) {
 }
 
 bool Ssh::open(const Target &target, SayFn say, AskFn ask) {
-  close();
-  if (!joinWifi(target, say)) return false;
-  if (!libraryStarted) {
-    libssh_begin();
-    libraryStarted = true;
+  if (!connect(target, say)) return false;
+
+  bool loggedIn = false;
+  ssh_key key = loadKey();
+  if (key) {
+    loggedIn = ssh_userauth_publickey(session, nullptr, key) == SSH_AUTH_SUCCESS;
+    ssh_key_free(key);
+    if (!loggedIn) say("The host did not take the key (Settings, F4 copies it).");
   }
-
-  sayf(say, "Connecting to %s@%s...", target.user.c_str(), target.host.c_str());
-  session = ssh_new();
-  if (!session) return fail(say, "SSH");
-  unsigned int port = target.port;
-  long timeout = SSH_TIMEOUT_S;
-  ssh_options_set(session, SSH_OPTIONS_HOST, target.host.c_str());
-  ssh_options_set(session, SSH_OPTIONS_PORT, &port);
-  ssh_options_set(session, SSH_OPTIONS_USER, target.user.c_str());
-  ssh_options_set(session, SSH_OPTIONS_TIMEOUT, &timeout);
-
-  if (ssh_connect(session) != SSH_OK) return fail(say, "Connection failed");
-  if (!hostKeyAccepted(target.host, say)) { close(); return false; }
-
-  String prompt = target.user + "@" + target.host + "'s password: ";
-  for (int attempt = 1;; attempt++) {
-    String password;
-    if (!ask(prompt.c_str(), true, password)) { close(); return false; }
-    int rc = ssh_userauth_password(session, nullptr, password.c_str());
-    if (rc == SSH_AUTH_SUCCESS) break;
-    if (rc != SSH_AUTH_DENIED || attempt == PASSWORD_TRIES) return fail(say, "Login failed");
-    say("Permission denied, try again.");
-  }
+  if (!loggedIn && !loginWithPassword(target, say, ask)) return false;
 
   channel = ssh_channel_new(session);
   if (!channel || ssh_channel_open_session(channel) != SSH_OK) return fail(say, "Session failed");
   if (ssh_channel_request_pty_size(channel, "vt220", TERM_COLS, TERM_ROWS) != SSH_OK)
     return fail(say, "Terminal request failed");
   if (ssh_channel_request_shell(channel) != SSH_OK) return fail(say, "Shell request failed");
+  return true;
+}
+
+bool Ssh::hasKey() {
+  Preferences prefs;
+  prefs.begin(PREFS_NAMESPACE, true);
+  bool has = prefs.isKey(PREFS_USER_KEY);
+  prefs.end();
+  return has;
+}
+
+bool Ssh::makeKey(SayFn say) {
+  startLibrary();
+  ssh_key key = nullptr;
+  char *text = nullptr;
+  if (ssh_pki_generate(SSH_KEYTYPE_ED25519, 0, &key) != SSH_OK) {
+    say("Could not make a key.");
+    return false;
+  }
+  int rc = ssh_pki_export_privkey_base64(key, nullptr, nullptr, nullptr, &text);
+  ssh_key_free(key);
+  if (rc != SSH_OK || !text) {
+    say("Could not store the key.");
+    return false;
+  }
+  Preferences prefs;
+  prefs.begin(PREFS_NAMESPACE, false);
+  bool stored = prefs.putString(PREFS_USER_KEY, text) > 0;
+  prefs.end();
+  ssh_string_free_char(text);
+  if (!stored) say("Could not store the key.");
+  return stored;
+}
+
+void Ssh::forgetKey() {
+  Preferences prefs;
+  prefs.begin(PREFS_NAMESPACE, false);
+  prefs.remove(PREFS_USER_KEY);
+  prefs.end();
+}
+
+String Ssh::keyFingerprint() {
+  String result;
+  ssh_key key = loadKey();
+  if (!key) return result;
+  unsigned char *hash = nullptr;
+  size_t hashLen = 0;
+  if (ssh_get_publickey_hash(key, SSH_PUBLICKEY_HASH_SHA256, &hash, &hashLen) == SSH_OK) {
+    char *text = ssh_get_fingerprint_hash(SSH_PUBLICKEY_HASH_SHA256, hash, hashLen);
+    if (text) result = text;
+    ssh_string_free_char(text);
+    ssh_clean_pubkey_hash(&hash);
+  }
+  ssh_key_free(key);
+  return result;
+}
+
+String Ssh::publicKeyLine() {
+  String result;
+  ssh_key key = loadKey();
+  if (!key) return result;
+  char *text = nullptr;
+  if (ssh_pki_export_pubkey_base64(key, &text) == SSH_OK && text) {
+    result = String(ssh_key_type_to_char(ssh_key_type(key))) + " " + text + " " + KEY_COMMENT;
+    ssh_string_free_char(text);
+  }
+  ssh_key_free(key);
+  return result;
+}
+
+bool Ssh::copyKeyToHost(const Target &target, SayFn say, AskFn ask) {
+  String keyLine = publicKeyLine();
+  if (!keyLine.length()) {
+    say("There is no key to copy.");
+    return false;
+  }
+  if (!connect(target, say)) return false;
+  if (!loginWithPassword(target, say, ask)) return false;
+
+  // The key line is base64 and a fixed comment: nothing in it needs quoting.
+  String command = "umask 077; mkdir -p ~/.ssh && echo '" + keyLine + "' >> ~/.ssh/authorized_keys";
+  ssh_channel exec = ssh_channel_new(session);
+  if (!exec || ssh_channel_open_session(exec) != SSH_OK ||
+      ssh_channel_request_exec(exec, command.c_str()) != SSH_OK) {
+    if (exec) ssh_channel_free(exec);
+    return fail(say, "Could not run the command");
+  }
+  // Read to the end, so that the exit status has arrived.
+  char buf[64];
+  for (int isStderr = 0; isStderr < 2; isStderr++) {
+    int n;
+    while ((n = ssh_channel_read_timeout(exec, buf, sizeof(buf) - 1, isStderr, SSH_TIMEOUT_S * 1000)) > 0) {
+      if (!isStderr) continue;
+      buf[n] = 0;
+      for (char *line = strtok(buf, "\r\n"); line; line = strtok(nullptr, "\r\n")) say(line);
+    }
+  }
+  uint32_t status = 1;
+  int rc = ssh_channel_get_exit_state(exec, &status, nullptr, nullptr);
+  ssh_channel_close(exec);
+  ssh_channel_free(exec);
+  close();
+  if (rc != SSH_OK || status != 0) {
+    sayf(say, "The host's command failed (status %lu).", (unsigned long)status);
+    return false;
+  }
   return true;
 }
 

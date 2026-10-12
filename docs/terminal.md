@@ -43,12 +43,29 @@ Move the calculator to the ESP32's pigtail and run `term()`. The menu:
 |---|---|
 | F1 | Serial: the shell that `make shell` runs on the computer |
 | F2 | SSH: a shell on the host in the settings, over Wi-Fi |
-| F3 | Settings: the Wi-Fi network, the SSH host and the user |
-| F4 | Local echo: nothing leaves the calculator |
-| F5 | Test pattern, with the time a full screen takes |
-| F6 | Key codes: shows each key's code |
-| F7 | Help: the keys and the menu, from `calc/term/help.txt` |
+| F3 | Settings: a menu of its own, below |
+| F4 | Debug: a menu of its own, below |
+| F5 | Help: the keys and the menu, from `calc/term/help.txt` |
 | ESC | Exit |
+
+Settings:
+
+| Key | Entry |
+|---|---|
+| F1 | Wi-Fi: the network and its password |
+| F2 | SSH host: the host and the user |
+| F3 | SSH key: makes the ESP32's own key, replaces it or removes it |
+| F4 | Copy the key: puts the public key on the host, after asking |
+
+Debug:
+
+| Key | Entry |
+|---|---|
+| F1 | Local echo: nothing leaves the calculator |
+| F2 | Test pattern, with the time a full screen takes |
+| F3 | Key codes: shows each key's code |
+
+ESC in either goes back to the main menu.
 
 The menu's bottom row shows the Wi-Fi status, asked from the ESP32 every
 three seconds: the network, signal strength and address, or that it is not
@@ -65,13 +82,33 @@ the calculator's. Ctrl-C then goes to the shell like any other key, so
 Ctrl-] is what stops it. Without `MIRROR`, the window shows nothing, sends
 nothing, and Ctrl-C stops it.
 
-For SSH, choose Settings first. The ESP32 lists the Wi-Fi networks it sees
-and asks for the network (by number or name), its password, the SSH host
-(`host` or `host:port`) and the user. They are stored in the ESP32's flash
-(the Preferences library), so they survive power cycles and reflashing, and
-the Wi-Fi password is readable there by anyone holding the board. The SSH
-password is asked for at every connection and never stored. `/settings` in
-the Serial Monitor shows what is stored, without the password.
+For SSH, go through Settings first. Wi-Fi lists the networks the ESP32
+sees and asks for the network (by number or name) and its password. SSH
+host asks for the host (`host` or `host:port`) and the user. They are
+stored in the ESP32's flash (the Preferences library), so they survive
+power cycles and reflashing, and the Wi-Fi password is readable there by
+anyone holding the board. `/settings` in the Serial Monitor shows what is
+stored, without the password.
+
+**Logging in.** Without a key, the SSH password is asked for at every
+connection and never stored. To skip it, the ESP32 can have a key of its
+own:
+
+1. Settings, F3 makes an ed25519 key pair on the ESP32 and shows its
+   fingerprint. This talks to no host.
+2. Settings, F4 copies the public half to the host. It shows the
+   fingerprint and the `user@host` it is about to change, and goes ahead
+   only when `yes` is typed. It then logs in with the password once and
+   adds a line ending in `voyage200` to `~/.ssh/authorized_keys` there.
+
+From then on SSH logs in with the key. If the host refuses it, the password
+is asked for as before. F3 also replaces or removes the key; the host keeps
+its line until it is deleted there.
+
+The private key never leaves the ESP32, and it is stored there unencrypted:
+whoever holds the board can log in to the hosts that have its public half.
+`/pubkey` in the Serial Monitor prints the public key line, to add to a
+host by hand instead.
 
 The host's key is remembered at the first connection and checked
 afterwards; if it changes, the connection is refused until `/forgethost` is
@@ -90,7 +127,10 @@ sent twice.
 |---|---|
 | `1E 's'` | a Serial session starts |
 | `1E 'h'` | an SSH session starts |
-| `1E 'c'` | the Settings dialog starts |
+| `1E 'n'` | the Wi-Fi settings dialog starts |
+| `1E 'k'` | the SSH host and user dialog starts |
+| `1E 'g'` | the SSH key dialog starts |
+| `1E 'i'` | the dialog that copies the key to the host starts |
 | `1E 'x'` | the session is over |
 | `1E 'w'` | what is the Wi-Fi status? |
 
@@ -155,7 +195,7 @@ the arrows, Home and End switch to those until the program switches back.
 **Function keys.** F1 to F4 send `ESC O P` to `ESC O S`; F5 to F8 send
 `ESC [ 15 ~`, `17 ~`, `18 ~` and `19 ~`.
 
-**Finding a key's code.** The menu's Key codes entry (F6) shows the number
+**Finding a key's code.** The Debug menu's Key codes entry shows the number
 the calculator gives for each key or combination. 2nd adds 4096 and ◆ adds
 8192 to the key's own code.
 
@@ -185,7 +225,7 @@ draws with the same line glyphs.
 `python3 calc/term/mkfont.py calc/term/font.txt --list` prints every covered
 character beyond ASCII with what it is drawn as: 495 of them at the moment.
 The stand-ins are listed at the top of `mkfont.py`; adding one is a matter of
-adding the character to the right line. The menu's test pattern (F5) shows a
+adding the character to the right line. The Debug menu's test pattern shows a
 sample.
 
 This is about the screen only. The keyboard still types ASCII.
@@ -221,7 +261,7 @@ This is about the screen only. The keyboard still types ASCII.
 - **An unplugged pigtail floats** and reads as a stream of garbage bytes, so
   this sketch turns on the ESP32's internal pull-ups.
 - **libssh needs a large stack.** The sketch gives the Arduino loop task
-  48 KB instead of the default 8 KB. With SSH the sketch takes 78% of the
-  default 1.3 MB program partition.
+  48 KB instead of the default 8 KB. With SSH and its keys the sketch takes
+  89% of the default 1.3 MB program partition.
 
 For the wiring and the hardware, see [hardware.md](hardware.md).

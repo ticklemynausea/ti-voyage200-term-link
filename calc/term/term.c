@@ -479,7 +479,13 @@ static void termPuts(const char *s)
 
 #define LINK_MARK 0x1E
 
-enum { MODE_SERIAL, MODE_SSH, MODE_SETTINGS, MODE_LOCAL, MODE_KEY_CODES };
+enum {
+  MODE_SERIAL, MODE_SSH, MODE_WIFI, MODE_SSH_HOST, MODE_SSH_KEY, MODE_SSH_COPY,  // through the link
+  MODE_LOCAL, MODE_KEY_CODES
+};
+
+// The letter that starts each of the sessions that go through the link.
+static const char MODE_LETTERS[] = "shnkgi";
 
 static short online;  // the session's bytes go out of the link
 
@@ -610,23 +616,23 @@ static void handleKey(unsigned short key)
 
 // ---------- sessions ----------
 
-// Runs until the quit key. Serial, SSH and Settings sessions go through the
-// link (the ESP32 runs the settings dialog); the local ones draw what is
-// typed, or each key's code.
+// Runs until the quit key. Serial, SSH and the settings sessions go through
+// the link (the ESP32 runs the settings dialogs); the local ones draw what
+// is typed, or each key's code.
 static void session(short mode)
 {
   char buf[64];
   unsigned short key;
   short n;
 
-  online = (mode == MODE_SERIAL || mode == MODE_SSH || mode == MODE_SETTINGS);
+  online = mode < MODE_LOCAL;
   termPuts("\x1B" "c");
   if (mode == MODE_LOCAL) termPuts("[local echo, 2nd+ESC for the menu]\r\n");
   if (mode == MODE_KEY_CODES) termPuts("[key codes, 2nd+ESC for the menu]\r\n");
 
   if (online) {
     OSLinkOpen();  // drops whatever is still queued
-    linkCommand(mode == MODE_SSH ? 'h' : (mode == MODE_SETTINGS ? 'c' : 's'));
+    linkCommand(MODE_LETTERS[mode]);
     // Ctrl-L: a shell that is already waiting redraws its prompt.
     if (mode == MODE_SERIAL) hostSend("\x0C", 1);
   }
@@ -730,6 +736,55 @@ static void putRight(short row, const char *text)
   termPuts(text);
 }
 
+// A menu under the main one. Returns the entry chosen, from 1, or 0 for ESC.
+static short submenu(const char *text, short entries)
+{
+  unsigned short key;
+
+  termPuts("\x1B" "c");
+  termPuts(text);
+  termPuts("  \x1B[7m ESC \x1B[0m Back");
+  for (;;) {
+    key = waitKey();
+    if (key == KEY_ESC || isQuitKey(key)) return 0;
+    if (key >= KEY_F1 && key < (unsigned short)(KEY_F1 + entries)) return key - KEY_F1 + 1;
+  }
+}
+
+static void settingsMenu(void)
+{
+  short choice;
+
+  for (;;) {
+    choice = submenu(
+      "Settings\r\n\r\n"
+      "  \x1B[7m F1 \x1B[0m  Wi-Fi         network and password\r\n\r\n"
+      "  \x1B[7m F2 \x1B[0m  SSH host      host and user\r\n\r\n"
+      "  \x1B[7m F3 \x1B[0m  SSH key       make this ESP32's key, or remove it\r\n\r\n"
+      "  \x1B[7m F4 \x1B[0m  Copy the key  to the host, for SSH without password\r\n\r\n",
+      4);
+    if (!choice) return;
+    session(MODE_WIFI + choice - 1);
+  }
+}
+
+static void debugMenu(void)
+{
+  for (;;) {
+    switch (submenu(
+      "Debug\r\n\r\n"
+      "  \x1B[7m F1 \x1B[0m  Local echo    nothing leaves the calculator\r\n\r\n"
+      "  \x1B[7m F2 \x1B[0m  Test pattern\r\n\r\n"
+      "  \x1B[7m F3 \x1B[0m  Key codes\r\n\r\n",
+      3)) {
+      case 1: session(MODE_LOCAL); break;
+      case 2: testPattern(); break;
+      case 3: session(MODE_KEY_CODES); break;
+      default: return;
+    }
+  }
+}
+
 // Returns 0 when the choice is to leave the program.
 static short menu(void)
 {
@@ -746,11 +801,9 @@ static short menu(void)
   termPuts("Voyage 200 terminal, built " __DATE__ " " __TIME__ "\r\n\r\n");
   termPuts("  \x1B[7m F1 \x1B[0m  Serial        a shell on the computer, over USB\r\n\r\n");
   termPuts("  \x1B[7m F2 \x1B[0m  SSH           over the ESP32's Wi-Fi\r\n\r\n");
-  termPuts("  \x1B[7m F3 \x1B[0m  Settings      Wi-Fi network, SSH host and user\r\n\r\n");
-  termPuts("  \x1B[7m F4 \x1B[0m  Local echo    nothing leaves the calculator\r\n\r\n");
-  termPuts("  \x1B[7m F5 \x1B[0m  Test pattern\r\n\r\n");
-  termPuts("  \x1B[7m F6 \x1B[0m  Key codes\r\n\r\n");
-  termPuts("  \x1B[7m F7 \x1B[0m  Help          the keys in a session\r\n\r\n");
+  termPuts("  \x1B[7m F3 \x1B[0m  Settings      Wi-Fi, SSH host and user, SSH key\r\n\r\n");
+  termPuts("  \x1B[7m F4 \x1B[0m  Debug         local echo, test pattern, key codes\r\n\r\n");
+  termPuts("  \x1B[7m F5 \x1B[0m  Help          the keys in a session\r\n\r\n");
   termPuts("  \x1B[7m ESC \x1B[0m Exit\r\n\r\n");
   termPuts("  Exit Shell: 2nd+ESC");
   putRight(19, "2026 Mario Carneiro");
@@ -781,7 +834,7 @@ static short menu(void)
 
     if (!OSdequeue(&key, keyQueue)) {
       if (isQuitKey(key)) key = KEY_ESC;
-      if ((key >= KEY_F1 && key <= KEY_F7) || key == KEY_ESC) choice = key;
+      if ((key >= KEY_F1 && key <= KEY_F5) || key == KEY_ESC) choice = key;
     } else if (OSTimerExpired(USER_TIMER)) {
       if (++unanswered > 2) drawStatus("ESP32: no answer", 16);
       linkCommand('w');
@@ -795,11 +848,9 @@ static short menu(void)
   switch (choice) {
     case KEY_F1: session(MODE_SERIAL); break;
     case KEY_F2: session(MODE_SSH); break;
-    case KEY_F3: session(MODE_SETTINGS); break;
-    case KEY_F4: session(MODE_LOCAL); break;
-    case KEY_F5: testPattern(); break;
-    case KEY_F6: session(MODE_KEY_CODES); break;
-    case KEY_F7: showHelp(); break;
+    case KEY_F3: settingsMenu(); break;
+    case KEY_F4: debugMenu(); break;
+    case KEY_F5: showHelp(); break;
     case KEY_ESC: return 0;
   }
   return 1;

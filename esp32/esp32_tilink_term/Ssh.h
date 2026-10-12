@@ -2,8 +2,12 @@
  * Ssh.h - one SSH shell session over Wi-Fi, for the terminal bridge
  *
  * Wraps LibSSH-ESP32. The shell is asked for a 60 x 21 vt220 terminal, which
- * is what calc/term draws. The login password is asked for at each
- * connection and never stored.
+ * is what calc/term draws.
+ *
+ * Logging in uses the ESP32's own key if it has one and the host takes it.
+ * Otherwise the password is asked for, at each connection, and never stored.
+ * The key is an ed25519 pair made here and kept in flash, unencrypted.
+ * Nothing puts it on a host except copyKeyToHost().
  *
  * The host's key is remembered the first time and checked from then on. If
  * it ever differs, the connection is refused until forgetHostKey() is called.
@@ -26,7 +30,7 @@ typedef void (*SayFn)(const char *line);
 typedef bool (*AskFn)(const char *prompt, bool hidden, String &answer);
 
 // Joins Wi-Fi if needed, connects, logs in and opens the shell. Blocks for
-// as long as that takes, including the password prompt.
+// as long as that takes, including the password prompt if there is one.
 bool open(const Target &target, SayFn say, AskFn ask);
 
 void close();
@@ -41,5 +45,17 @@ void write(const uint8_t *data, size_t len);
 bool joinWifi(const Target &target, SayFn say);
 
 void forgetHostKey();
+
+// The ESP32's own key pair.
+bool hasKey();
+bool makeKey(SayFn say);  // replaces the one there is
+void forgetKey();
+String keyFingerprint();  // "SHA256:...", empty without a key
+String publicKeyLine();   // as it goes in authorized_keys, empty without a key
+
+// Logs in with the password and appends the public key to the user's
+// ~/.ssh/authorized_keys on the host, then disconnects. The caller is the
+// one to ask the user whether that is wanted.
+bool copyKeyToHost(const Target &target, SayFn say, AskFn ask);
 
 }  // namespace Ssh

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Turns help.txt into help.h: the pages the menu's F7 shows.
+"""Turns help.txt into help.h: the pages the menu's F5 shows.
 
     mkhelp.py help.txt help.h
 """

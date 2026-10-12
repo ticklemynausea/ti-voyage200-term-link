@@ -8,8 +8,11 @@
  * The calculator picks the backend from its menu, with 0x1E and a letter:
  *   's'  Serial: the USB serial port, described below
  *   'h'  SSH: a shell on the host in the settings, over Wi-Fi (see Ssh.h)
- *   'c'  Settings: asks on the calculator for the Wi-Fi network and the SSH
- *        host and user, and stores them in the ESP32's flash (Preferences)
+ *   'n'  Wi-Fi settings: asks on the calculator for the network and its
+ *        password, and stores them in the ESP32's flash (Preferences)
+ *   'k'  SSH settings: the host and the user, stored likewise
+ *   'g'  SSH key: makes the ESP32's own key pair, or removes it
+ *   'i'  copies the public key to the host, after asking
  *   'x'  the session is over
  *   'w'  asks for the Wi-Fi status, for the menu's status bar. The answer is
  *        0x1E 'w', a line of text and a newline. It leaves the backend alone.
@@ -61,7 +64,7 @@ const uint8_t PIN_RING = 5;
 const uint32_t SEND_PATIENCE_MS = 5000;
 
 const char HELP[] =
-  "Commands: /stats | /burst [bytes] | /raw | /settings | /forgethost | /help   (anything else is sent)";
+  "Commands: /stats | /burst [bytes] | /raw | /settings | /pubkey | /forgethost | /help   (anything else is sent)";
 
 // Internal pull-ups on: with the calculator unplugged the lines then read as
 // idle instead of floating, which would otherwise arrive as garbage bytes.
@@ -299,13 +302,15 @@ bool askSetting(const char *name, String &value, bool hidden) {
   return true;
 }
 
-// The settings dialog, run on the calculator's screen. Nothing is stored
-// unless every question was answered.
-void editSettings() {
+const char BACK_HINT[] = "[2nd+ESC for the menu]";
+
+// The settings dialogs, run on the calculator's screen. Nothing is stored
+// unless every question of a dialog was answered.
+void editWifi() {
   Ssh::Target edited = target;
 
-  sayToCalc("Settings. ENTER keeps the value in brackets.");
-  sayToCalc("Looking for Wi-Fi networks...");
+  sayToCalc("Wi-Fi. ENTER keeps the value in brackets.");
+  sayToCalc("Looking for networks...");
   WiFi.mode(WIFI_STA);
   int found = WiFi.scanNetworks();
   if (found > 9) found = 9;
@@ -316,29 +321,116 @@ void editSettings() {
   if (found <= 0) sayToCalc(" none found; the name can still be typed");
 
   String network;
-  if (!askOnCalc(("Wi-Fi network, number or name [" + edited.wifiName + "]: ").c_str(), false, network)) return;
+  if (!askOnCalc(("Network, number or name [" + edited.wifiName + "]: ").c_str(), false, network)) return;
   if (network.length() == 1 && network[0] >= '1' && network[0] < '1' + found) {
     network = WiFi.SSID(network[0] - '1');
   }
   WiFi.scanDelete();
   if (network.length()) edited.wifiName = network;
 
-  if (!askSetting("Wi-Fi password", edited.wifiPassword, true)) return;
+  if (!askSetting("Password", edited.wifiPassword, true)) return;
 
+  target = edited;
+  saveSettings();
+  sayToCalc("Saved. Testing:");
+  Ssh::joinWifi(target, sayToCalc);
+  sayToCalc(BACK_HINT);
+}
+
+void editSshHost() {
+  Ssh::Target edited = target;
+
+  sayToCalc("SSH host and user. ENTER keeps the value in brackets.");
   String host = edited.port == 22 ? edited.host : edited.host + ":" + edited.port;
-  if (!askSetting("SSH host (name or address, optionally :port)", host, false)) return;
+  if (!askSetting("Host (name or address, optionally :port)", host, false)) return;
   int colon = host.lastIndexOf(':');
   long port = colon > 0 ? host.substring(colon + 1).toInt() : 22;
   edited.host = colon > 0 ? host.substring(0, colon) : host;
   edited.port = (port > 0 && port < 65536) ? port : 22;
 
-  if (!askSetting("SSH user", edited.user, false)) return;
+  if (!askSetting("User", edited.user, false)) return;
 
   target = edited;
   saveSettings();
-  sayToCalc("Saved. Testing the Wi-Fi settings:");
-  Ssh::joinWifi(target, sayToCalc);
-  sayToCalc("[2nd+ESC for the menu]");
+  sayToCalc("Saved.");
+  sayToCalc(BACK_HINT);
+}
+
+// True only for the whole word, so that a stray ENTER changes nothing.
+bool confirmedOnCalc(const char *prompt) {
+  String answer;
+  return askOnCalc(prompt, false, answer) && answer == "yes";
+}
+
+void showSshKey() {
+  sayToCalc("This ESP32's key:");
+  sayToCalc(("  " + Ssh::keyFingerprint()).c_str());
+}
+
+void makeSshKey() {
+  sayToCalc("Making a key...");
+  if (!Ssh::makeKey(sayToCalc)) return;
+  showSshKey();
+  sayToCalc("No host knows it yet: Settings, F4 copies it to the host.");
+}
+
+// Makes, replaces or removes the ESP32's key. Nothing here talks to a host.
+void editSshKey() {
+  if (!Ssh::hasKey()) {
+    sayToCalc("SSH key. This ESP32 has none.");
+    sayToCalc("With one, and once the host has its public half,");
+    sayToCalc("SSH logs in without a password. It is kept in the");
+    sayToCalc("ESP32, readable by whoever holds the board.");
+    if (confirmedOnCalc("Make one? Type yes: ")) makeSshKey();
+    else if (!pendingCount) sayToCalc("No key was made.");
+  } else {
+    showSshKey();
+    sayToCalc(" 1  replace it with a new one");
+    sayToCalc(" 2  remove it");
+    String choice;
+    if (!askOnCalc("1, 2, or ENTER to leave it: ", false, choice)) return;
+    if (choice == "1") {
+      sayToCalc("Hosts that have the old key will ask for the password.");
+      if (confirmedOnCalc("Replace it? Type yes: ")) makeSshKey();
+      else if (!pendingCount) sayToCalc("The key was left as it is.");
+    } else if (choice == "2") {
+      sayToCalc("SSH will ask for the password again. The host keeps");
+      sayToCalc("its copy of the public half until it is deleted there.");
+      if (confirmedOnCalc("Remove it? Type yes: ")) {
+        Ssh::forgetKey();
+        sayToCalc("Removed.");
+      } else if (!pendingCount) {
+        sayToCalc("The key was left as it is.");
+      }
+    }
+  }
+  if (!pendingCount) sayToCalc(BACK_HINT);
+}
+
+// Puts the public key on the host, only after the user has read what that
+// means and typed yes.
+void copySshKey() {
+  sayToCalc("Copy the key to the host");
+  if (!Ssh::hasKey()) {
+    sayToCalc("This ESP32 has no key yet: Settings, F3 makes one.");
+  } else if (!settingsComplete()) {
+    sayToCalc("Set the Wi-Fi (F1) and the SSH host and user (F2) first.");
+  } else {
+    sayToCalc("This adds the public key");
+    sayToCalc(("  " + Ssh::keyFingerprint()).c_str());
+    sayToCalc(("to ~/.ssh/authorized_keys of " + target.user + "@" + target.host + ".").c_str());
+    sayToCalc("Whoever holds this ESP32 can then log in there");
+    sayToCalc("without a password.");
+    if (!confirmedOnCalc("Go ahead? Type yes: ")) {
+      if (!pendingCount) sayToCalc("Nothing was copied.");
+    } else if (Ssh::copyKeyToHost(target, sayToCalc, askOnCalc)) {
+      Display::log("SSH key copied to the host");
+      sayToCalc("Copied. SSH now logs in with the key.");
+    } else if (!pendingCount) {
+      sayToCalc("Nothing was copied.");
+    }
+  }
+  if (!pendingCount) sayToCalc(BACK_HINT);
 }
 
 void runCalcCommand(char command) {
@@ -346,21 +438,31 @@ void runCalcCommand(char command) {
   backend = BACKEND_NONE;
 
   Display::log(command == 's' ? "calculator: Serial" : command == 'h' ? "calculator: SSH"
-               : command == 'c' ? "calculator: Settings" : "calculator: menu");
+               : command == 'n' ? "calculator: Wi-Fi settings"
+               : command == 'k' ? "calculator: SSH settings"
+               : command == 'g' ? "calculator: SSH key"
+               : command == 'i' ? "calculator: copy the SSH key" : "calculator: menu");
   if (command == 's') {
     backend = BACKEND_SERIAL;
   } else if (command == 'h') {
     if (!settingsComplete()) {
-      sayToCalc("SSH is not set up yet: choose Settings in the menu.");
-      sayToCalc("[2nd+ESC for the menu]");
+      sayToCalc("SSH is not set up yet: choose Settings in the menu,");
+      sayToCalc("then Wi-Fi (F1) and SSH host and user (F2).");
+      sayToCalc(BACK_HINT);
     } else if (Ssh::open(target, sayToCalc, askOnCalc)) {
       backend = BACKEND_SSH;
       Display::log("SSH session open");
     } else if (!pendingCount) {
-      sayToCalc("[2nd+ESC for the menu]");
+      sayToCalc(BACK_HINT);
     }
-  } else if (command == 'c') {
-    editSettings();
+  } else if (command == 'n') {
+    editWifi();
+  } else if (command == 'k') {
+    editSshHost();
+  } else if (command == 'g') {
+    editSshKey();
+  } else if (command == 'i') {
+    copySshKey();
   }
 }
 
@@ -368,7 +470,7 @@ void runCalcCommand(char command) {
 void sendWifiStatus() {
   String status;
   if (!target.wifiName.length()) {
-    status = "Wi-Fi: not set up (F3)";
+    status = "Wi-Fi: not set up (F3, then F1)";
   } else if (WiFi.status() == WL_CONNECTED) {
     status = "Wi-Fi: " + WiFi.SSID() + "  " + WiFi.RSSI() + " dBm  " + WiFi.localIP().toString();
   } else {
@@ -446,6 +548,11 @@ void handleLine(const String &text) {
     Serial.printf("Wi-Fi network \"%s\" (password %s), SSH %s@%s port %u\n", target.wifiName.c_str(),
                   target.wifiPassword.length() ? "set" : "not set", target.user.c_str(),
                   target.host.c_str(), target.port);
+    if (Ssh::hasKey()) Serial.printf("SSH key %s\n", Ssh::keyFingerprint().c_str());
+    else Serial.println("No SSH key");
+  } else if (text == "/pubkey") {
+    if (Ssh::hasKey()) Serial.println(Ssh::publicKeyLine());
+    else Serial.println("No SSH key. The calculator's Settings menu makes one.");
   } else if (text == "/forgethost") {
     Ssh::forgetHostKey();
     Serial.println("The SSH host's remembered key is forgotten; the next connection stores it anew.");

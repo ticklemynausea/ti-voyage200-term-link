@@ -84,8 +84,8 @@ make calc:term:send      # build term.v2z and send it (SilverLink cable)
 make shell               # optional: a shell on this computer for the Serial entry
 ```
 
-Run `term()` on the calculator. F3 sets the Wi-Fi network and the SSH host,
-F2 connects over SSH, F1 uses the shell from `make shell`. The keys, the
+Run `term()` on the calculator. F3 opens the settings: the Wi-Fi network, the SSH host, and a key for
+logging in without a password. F2 connects over SSH, F1 uses the shell from `make shell`. The keys, the
 settings and what was learned on the way are in
 [docs/terminal.md](docs/terminal.md).
 
@@ -130,7 +130,7 @@ calc/                                C programs for the calculator (TIGCC / GCC4
   term/                              a 60x21 terminal on the link port, with a menu
     term.c                             screen, VT220 subset, keyboard
     font.txt, mkfont.py                the 3x5 font, drawn as text; its converter and character table
-    help.txt, mkhelp.py                the help pages shown by F7, as text, and their converter
+    help.txt, mkhelp.py                the help pages shown by F5, as text, and their converter
 tools/
   shell.py                           joins a shell on the computer to the ESP32's port
 shell/
