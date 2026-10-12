@@ -573,25 +573,41 @@ static unsigned short waitKey(void)
   }
 }
 
-// Stands in for the calculator's CHAR menu. The bottom row lists the symbols,
-// each after the letter that picks it; any other key closes the menu.
+#define CHAR_ROWS 2
+#define CHAR_PER_ROW 11
+#define CHAR_CELLS 5  // per symbol: three for its key, the symbol, a blank
+
+// Stands in for the calculator's CHAR menu. The bottom two rows list the
+// symbols, each after the letter that picks it, drawn as a key in reverse
+// video; any other key closes the menu.
 static void charMenu(void)
 {
   static const char SYMBOLS[] = "~`|\\$%&#@_{}[]<>'\";:!?";
-  unsigned char saved[CELL_H * LCD_ROW_BYTES];
-  unsigned char *row = cellAddr(0, ROWS - 1);
+  unsigned char saved[CHAR_ROWS * CELL_H * LCD_ROW_BYTES];
+  unsigned char *top = cellAddr(0, ROWS - CHAR_ROWS);
+  unsigned char *p;
   unsigned short key;
-  short i;
+  short i, k, row, col, y;
 
   hideCursor();
-  memcpy(saved, row, sizeof(saved));
+  memcpy(saved, top, sizeof(saved));
+  for (row = ROWS - CHAR_ROWS; row < ROWS; row++) clearCells(0, COLS - 1, row);
   for (i = 0; SYMBOLS[i]; i++) {
-    drawCell(i * 2, ROWS - 1, 'a' + i, 1);
-    drawCell(i * 2 + 1, ROWS - 1, SYMBOLS[i], 0);
+    row = ROWS - CHAR_ROWS + i / CHAR_PER_ROW;
+    col = (i % CHAR_PER_ROW) * CHAR_CELLS;
+    for (k = 0; k < 3; k++) {
+      drawCell(col + k, row, k == 1 ? 'a' + i : ' ', 1);
+      // The key is five pixels high: the cell's last pixel row goes back to
+      // normal, which keeps the two rows of keys apart. A descender shows there.
+      cellAddr(col + k, row)[(CELL_H - 1) * LCD_ROW_BYTES] ^= ((col + k) & 1) ? 0x0F : 0xF0;
+    }
+    // The key ends one pixel early, so that the symbol does not touch it.
+    p = cellAddr(col + 2, row);
+    for (y = 0; y < CELL_H; y++, p += LCD_ROW_BYTES) *p &= ((col + 2) & 1) ? ~0x01 : ~0x10;
+    drawCell(col + 3, row, SYMBOLS[i], 0);
   }
-  clearCells(i * 2, COLS - 1, ROWS - 1);
   key = waitKey();
-  memcpy(row, saved, sizeof(saved));
+  memcpy(top, saved, sizeof(saved));
 
   if (key >= 'A' && key <= 'Z') key += 'a' - 'A';
   if (key >= 'a' && key < 'a' + sizeof(SYMBOLS) - 1) hostSend(&SYMBOLS[key - 'a'], 1);

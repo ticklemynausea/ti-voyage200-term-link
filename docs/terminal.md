@@ -164,7 +164,7 @@ cannot switch the mode behind its back.
 | ◆ + letter | Ctrl + letter (the keyboard has no Ctrl key) |
 | ◆ + up / down | Page Up / Page Down |
 | 2nd + up / down | Home / End (2nd + left / right too) |
-| 2nd + plus (CHAR) | a symbol the keyboard lacks, picked from a strip on the bottom row |
+| 2nd + plus (CHAR) | a symbol the keyboard lacks, picked from a strip on the bottom two rows |
 | F1 to F8 | the function keys |
 | 2nd + ESC (QUIT) | nothing: goes back to the menu. ◆ + ESC does the same |
 | 2nd + APPS | nothing: takes a [screenshot](#screenshots), in the menus too |
@@ -191,12 +191,14 @@ with 2nd, and ◆ + 2nd + a key sends nothing: tried with `]`, which is 2nd +
 divide. So there is no Ctrl-] or Ctrl-\. Ctrl-[ is not missed, since it is
 the ESC key.
 
-**Symbols.** 2nd + plus shows a strip on the bottom row with each symbol
-next to a letter, `a` to `v`. The letter picks the symbol, and any other key
-closes the strip:
+**Symbols.** 2nd + plus shows a strip on the bottom two rows with each
+symbol next to a letter, `a` to `v`, drawn as a key in reverse video. The
+letter picks the symbol, and any other key closes the strip. Here the keys
+are in square brackets:
 
 ```
-a~ b` c| d\ e$ f% g& h# i@ j_ k{ l} m[ n] o< p> q' r" s; t: u! v?
+[ a ]~ [ b ]` [ c ]| [ d ]\ [ e ]$ [ f ]% [ g ]& [ h ]# [ i ]@ [ j ]_ [ k ]{
+[ l ]} [ m ][ [ n ]] [ o ]< [ p ]> [ q ]' [ r ]" [ s ]; [ t ]: [ u ]! [ v ]?
 ```
 
 **Arrows.** They send the usual codes (`ESC [ A` and so on). Programs such as
