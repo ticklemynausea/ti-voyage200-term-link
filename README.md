@@ -9,7 +9,7 @@ screen make the setup portable.
 
 ![A Voyage 200 running Claude Code, wired to an M5Stack Stamp S3 on a breadboard](docs/pics/stamp-s3-claude-code.png)
 
-The headline: a 12 KB C program turns the calculator into a 60x21 VT220
+A 12 KB C program turns the calculator into a 60x21 VT220
 terminal. From its menu you open a shell on the computer the ESP32 is plugged
 into, or an SSH session to any host over Wi-Fi. `vim`, `less`, `irssi` and
 `links` run on it.
@@ -21,11 +21,7 @@ into, or an SSH session to any host over Wi-Fi. `vim`, `less`, `irssi` and
 These two are screenshots: the calculator sends its own screen through the
 ESP32 when 2nd + APPS is pressed.
 
-```
-Voyage 200             ESP32
-calc/term  <- link ->  esp32_tilink_term  <- USB serial ->  a shell on the computer
-                                          <- Wi-Fi, SSH ->  a shell on another host
-```
+![The Voyage 200 runs calc/term and connects over its link port to an ESP32 running esp32_tilink_term, which reaches a shell on the computer over USB serial or a shell on another host over Wi-Fi and SSH](docs/pics/diagram.svg)
 
 This is a hobby project and a record of experiments, not a finished product.
 Treat the protocol notes as findings from these calculators, not as a
@@ -33,7 +29,7 @@ specification.
 
 ## Pictures
 
-| | |
+| The menu | Claude Code in a session |
 |---|---|
 | ![The calculator showing the terminal's menu](docs/pics/voyage200-menu.png) | ![The calculator in a session with Claude Code](docs/pics/voyage200-claude-code.png) |
 
