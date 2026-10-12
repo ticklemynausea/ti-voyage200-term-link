@@ -11,8 +11,18 @@ screen make the setup portable.
 
 A 12 KB C program turns the calculator into a 60x21 VT220
 terminal. From its menu you open a shell on the computer the ESP32 is plugged
-into, or an SSH session to any host over Wi-Fi. `vim`, `less`, `irssi` and
-`links` run on it.
+into, or an SSH session to any host over Wi-Fi.
+
+Programs confirmed to work on it:
+
+- `irssi`
+- `nchat` - telegram and whatsapp
+- `htop` and `top`
+- `cmatrix`
+- `links` web browser
+- `vim` and `nvim`
+- `tmux` and `screen`, which tie everything together in one terminal
+  session ([settings for both](docs/tmux-and-screen.md))
 
 | The menu | Claude Code in a session |
 |---|---|
