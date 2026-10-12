@@ -5,11 +5,11 @@ The ESP32 (esp32_tilink_term) is put in raw mode and its serial port is
 joined to a pseudo-terminal of 60 x 21 characters with TERM=vt220. Start
 term() on the calculator first.
 
-    tools/shell.py                     the login shell
-    tools/shell.py top                 any other command
-    tools/shell.py --port /dev/cu.xxx  when the port is not found by itself
-    tools/shell.py --mirror            share the session with this window
-    tools/shell.py --no-shell          run nothing, only save screenshots
+    shell/shell.py                     the login shell
+    shell/shell.py top                 any other command
+    shell/shell.py --port /dev/cu.xxx  when the port is not found by itself
+    shell/shell.py --mirror            share the session with this window
+    shell/shell.py --no-shell          run nothing, only save screenshots
 
 With --mirror the output is also copied to this window, and keys typed here
 go to the same shell, alongside the calculator's.

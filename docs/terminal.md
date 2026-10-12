@@ -5,7 +5,7 @@ raw bytes over the link port. TI's packet protocol is not involved. The ESP32
 carries the bytes to a shell, either on the computer it is plugged into or on
 any host it can reach by SSH over Wi-Fi.
 
-![The Voyage 200 runs calc/term and connects over its link port to an ESP32 running esp32_tilink_term, which reaches a shell on the computer over USB serial and tools/shell.py, or a shell on another host over Wi-Fi and SSH](pics/diagram.svg)
+![The Voyage 200 runs calc/term and connects over its link port to an ESP32 running esp32_tilink_term, which reaches a shell on the computer over USB serial and shell/shell.py, or a shell on another host over Wi-Fi and SSH](pics/diagram.svg)
 
 - **`calc/term/`** is the calculator program (about 12 KB), built with
   TIGCC / GCC4TI. It opens on a menu that picks where the session goes. It
@@ -19,7 +19,7 @@ any host it can reach by SSH over Wi-Fi.
   chose. `Ssh.h` / `Ssh.cpp` hold the SSH side, on the LibSSH-ESP32 library.
   On the serial side, its monitor mode shows what the calculator sends, and
   `/burst`, `/stats` and `/raw` test the link.
-- **`tools/shell.py`** runs a command on the computer in a 60x21 `vt220`
+- **`shell/shell.py`** runs a command on the computer in a 60x21 `vt220`
   pseudo-terminal joined to the ESP32's port, for the menu's Serial entry.
 
 ## Running it
@@ -134,7 +134,7 @@ sent twice.
 **ESP32 to calculator.** Plain terminal output, except the answer to the
 status question: `1E 'w'`, a line of text, a newline.
 
-**Computer to ESP32** (`tools/shell.py`). Three `0x1E` bytes, a word and a
+**Computer to ESP32** (`shell/shell.py`). Three `0x1E` bytes, a word and a
 newline switch the sketch's serial mode: `raw` or `monitor`. In raw mode
 entered that way the script keeps at most 128 bytes outstanding, and the
 sketch answers `1E 'a'` for every 32 bytes it has passed on.
@@ -146,7 +146,7 @@ starts.
 
 Those two exist because monitor mode prints text meant for a person. A
 script that believes the sketch is in raw mode would take that text for
-keys typed on the calculator and hand it to the shell. So `tools/shell.py`
+keys typed on the calculator and hand it to the shell. So `shell/shell.py`
 passes nothing on until it has seen `1E 'r'`, and when the ESP32 restarts
 under it (`ESP-ROM:` from the boot loader, then `1E 'b'`) it asks for raw
 mode again and waits. It also takes the port for itself, so a second copy
@@ -230,7 +230,7 @@ make screenshots   # runs nothing, only saves screenshots
 ```
 
 Each one is saved as `screenshots/voyage200-<date>-<time>.png`, with every
-calculator pixel four pixels wide (`tools/shell.py --scale` changes that,
+calculator pixel four pixels wide (`shell/shell.py --scale` changes that,
 `--screenshots` the folder). With nothing attached the picture is dropped;
 the Serial Monitor and the Cardputer's log say so.
 
@@ -285,7 +285,7 @@ This is about the screen only. The keyboard still types ASCII.
 - **Serial output has to be paced.** The link carries about 3 KB/s, far
   less than USB, and the ESP32 drops serial bytes it has no room for.
   Programs that repaint the whole screen then lost part of their output.
-  `tools/shell.py` keeps at most 128 bytes outstanding and the sketch
+  `shell/shell.py` keeps at most 128 bytes outstanding and the sketch
   acknowledges every 32 it has passed on.
 - **Collisions can lose a keystroke.** The link is half duplex. That test
   logged one link error, most likely a key pressed while the ESP32 was

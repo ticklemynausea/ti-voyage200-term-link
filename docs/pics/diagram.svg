@@ -2,7 +2,7 @@
      aria-labelledby="title desc" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
   <title id="title">How the pieces connect</title>
   <desc id="desc">The Voyage 200 runs calc/term and connects over its link port to an ESP32 running
-    esp32_tilink_term. From the ESP32, USB serial leads to tools/shell.py and a shell on the
+    esp32_tilink_term. From the ESP32, USB serial leads to shell/shell.py and a shell on the
     computer, and Wi-Fi leads through SSH to a shell on another host.</desc>
   <defs>
     <marker id="head" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
@@ -53,7 +53,7 @@
       <text x="760" y="190">SSH</text>
     </g>
     <g font-size="14" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
-      <text x="760" y="70" font-weight="600">tools/shell.py</text>
+      <text x="760" y="70" font-weight="600">shell/shell.py</text>
       <g fill="#57606a">
         <text x="110" y="144">calc/term</text>
         <text x="385" y="144">esp32_tilink_term</text>

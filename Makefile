@@ -83,11 +83,11 @@ esp32_cardputer\:linetest\:flash:
 
 shell:
 	$(need_port)
-	python3 tools/shell.py --port $(PORT) $(if $(MIRROR),--mirror) $(CMD)
+	python3 shell/shell.py --port $(PORT) $(if $(MIRROR),--mirror) $(CMD)
 
 screenshots:
 	$(need_port)
-	python3 tools/shell.py --port $(PORT) --no-shell
+	python3 shell/shell.py --port $(PORT) --no-shell
 
 .PHONY: shell screenshots calc\:term\:build calc\:term\:send \
 	esp32_stamps3\:term\:build esp32_stamps3\:term\:flash \

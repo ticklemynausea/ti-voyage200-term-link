@@ -29,7 +29,7 @@
  *   raw (after /raw)       every byte passes through untouched, both ways,
  *                          and nothing else is printed. Reset to leave it.
  *
- * A program on the host (tools/shell.py) switches modes with a control
+ * A program on the host (shell/shell.py) switches modes with a control
  * line that works in either mode: three 0x1E bytes, then "raw" or "monitor",
  * then a newline. "raw" is answered with 0x1E 'r', and at power-up the sketch
  * sends 0x1E 'b'. Monitor mode prints text meant for a person, which a

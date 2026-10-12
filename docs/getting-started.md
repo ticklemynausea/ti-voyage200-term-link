@@ -16,7 +16,7 @@ minimums.
 | ESP32 board package (`esp32:esp32`) | the board definitions | 3.2.0 |
 | [LibSSH-ESP32](https://github.com/ewpa/LibSSH-ESP32) library | SSH in the terminal sketch | 5.10.0 |
 | [M5Cardputer](https://github.com/m5stack/M5Cardputer) library | the status screen, in the Cardputer build only | 1.1.1 |
-| Python 3 | the font converter and `tools/shell.py`; standard library only | 3.9 |
+| Python 3 | the font converter and `shell/shell.py`; standard library only | 3.9 |
 | `make` | the shortcuts below | |
 
 The two Arduino pieces are installed once:
