@@ -133,6 +133,7 @@ sent twice.
 | `1E 'i'` | the dialog that copies the key to the host starts |
 | `1E 'x'` | the session is over |
 | `1E 'w'` | what is the Wi-Fi status? |
+| `1E 'p'` | a screenshot: the 3840 bytes of the screen follow, as they are |
 
 **ESP32 to calculator.** Plain terminal output, except the answer to the
 status question: `1E 'w'`, a line of text, a newline.
@@ -141,6 +142,19 @@ status question: `1E 'w'`, a line of text, a newline.
 newline switch the sketch's serial mode: `raw` or `monitor`. In raw mode
 entered that way the script keeps at most 128 bytes outstanding, and the
 sketch answers `1E 'a'` for every 32 bytes it has passed on.
+
+**ESP32 to computer.** In that paced raw mode a real `0x1E` from the
+calculator is sent twice, and a screenshot is `1E 'p'` and its 3840 bytes.
+The sketch answers the `raw` line with `1E 'r'` and sends `1E 'b'` when it
+starts.
+
+Those two exist because monitor mode prints text meant for a person. A
+script that believes the sketch is in raw mode would take that text for
+keys typed on the calculator and hand it to the shell. So `tools/shell.py`
+passes nothing on until it has seen `1E 'r'`, and when the ESP32 restarts
+under it (`ESP-ROM:` from the boot loader, then `1E 'b'`) it asks for raw
+mode again and waits. It also takes the port for itself, so a second copy
+cannot switch the mode behind its back.
 
 ## Keys in a session
 
@@ -157,6 +171,7 @@ sketch answers `1E 'a'` for every 32 bytes it has passed on.
 | 2nd + plus (CHAR) | a symbol the keyboard lacks, picked from a strip on the bottom row |
 | F1 to F8 | the function keys |
 | 2nd + ESC (QUIT) | nothing: goes back to the menu. ◆ + ESC does the same |
+| 2nd + APPS | nothing: takes a [screenshot](#screenshots), in the menus too |
 
 Any other key sends nothing. That covers the TI-only characters, such as the
 (−) negation key: use the subtraction key for `-`. The divide key types `/`.
@@ -201,6 +216,32 @@ the calculator gives for each key or combination. 2nd adds 4096 and ◆ adds
 
 The menu's first line shows when the program was built, which tells whether
 the calculator has the latest copy.
+
+## Screenshots
+
+2nd + APPS sends the calculator's screen to the computer: the real pixels,
+240 x 128, of whatever `term()` is showing. It works in the menus, the help
+pages, the settings dialogs, with the symbol strip open, and in Serial and
+SSH sessions. It takes a second or two, during which the screen stands
+still.
+
+Something on the computer has to be attached to the ESP32 to receive it.
+The calculator does not have to be in a Serial session:
+
+```sh
+make shell         # the shell for the Serial entry; saves screenshots too
+make screenshots   # runs nothing, only saves screenshots
+```
+
+Each one is saved as `screenshots/voyage200-<date>-<time>.png`, with every
+calculator pixel four pixels wide (`tools/shell.py --scale` changes that,
+`--screenshots` the folder). With nothing attached the picture is dropped;
+the Serial Monitor and the Cardputer's log say so.
+
+The screen is a plain bitmap in the calculator's memory, so the program
+sends those bytes down the link and the ESP32 passes them on. The ESP32
+holds back its own output while they arrive. Only `term()` can do this:
+the Home screen and other programs are out of its reach.
 
 ## Characters
 

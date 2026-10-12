@@ -15,6 +15,7 @@ diamond + up/down  Page Up / Page Down
 2nd + plus         symbols the keyboard lacks: a strip
                    opens on the bottom row, a letter picks
 F1 to F8           the function keys
+2nd + APPS         screenshot, saved on the computer
 
 ENTER, ESC, the arrows and backspace do what they say.
 The divide key types /   Use the minus key for -

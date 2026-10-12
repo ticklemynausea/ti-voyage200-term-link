@@ -11,6 +11,7 @@
 //   2nd + up/down      Home / End (2nd + left/right too)
 //   2nd + plus (CHAR)  symbols the keyboard lacks: pick one by its letter
 //   2nd + ESC (QUIT)   back to the menu; diamond + ESC does the same
+//   2nd + APPS         sends the screen to the computer, as a screenshot
 
 #define USE_V200
 #define MIN_AMS 207
@@ -30,6 +31,7 @@
 
 #define KEY_2ND 4096
 #define KEY_QUIT (KEY_2ND + KEY_ESC)
+#define KEY_SCREENSHOT (KEY_2ND + KEY_APPS)
 
 // ---------- screen ----------
 
@@ -522,11 +524,53 @@ static void hostSend(const char *s, short len)
 
 static void *keyQueue;
 
+#define SCREEN_PIECE 64
+#define SCREEN_PATIENCE 1000  // wake-ups with no room in the queue: a few seconds
+
+// Sends the screen as it is to the ESP32, which passes it to the computer:
+// LINK_MARK 'p' and the LCD's bytes, unescaped since their number is fixed.
+// The OS's transmit queue is small, so the bytes go in pieces as it empties.
+// If it stays full nobody is listening, and what is queued is thrown away.
+static void sendScreen(void)
+{
+  const char *p = (const char *)lcd;
+  unsigned short left = LCD_SIZE;
+  unsigned short waited = 0;
+  short started = 0;
+  short n;
+
+  while (left) {
+    n = OSLinkTxQueueInquire();
+    if (!started && n >= 2) {
+      linkCommand('p');
+      started = 1;
+      waited = 0;
+    } else if (started && n > 0) {
+      if (n > SCREEN_PIECE) n = SCREEN_PIECE;
+      if ((unsigned short)n > left) n = left;
+      OSWriteLinkBlock(p, n);
+      p += n;
+      left -= n;
+      waited = 0;
+    } else if (++waited > SCREEN_PATIENCE) {
+      OSLinkOpen();
+      return;
+    } else {
+      idle();
+    }
+  }
+}
+
+// The screenshot key is dealt with here, so that it works wherever a key is
+// waited for.
 static unsigned short waitKey(void)
 {
   unsigned short key;
-  while (OSdequeue(&key, keyQueue)) idle();
-  return key;
+  for (;;) {
+    while (OSdequeue(&key, keyQueue)) idle();
+    if (key != KEY_SCREENSHOT) return key;
+    sendScreen();
+  }
 }
 
 // Stands in for the calculator's CHAR menu. The bottom row lists the symbols,
@@ -646,7 +690,9 @@ static void session(short mode)
       OSTimerRestart(USER_TIMER);
     } else if (!OSdequeue(&key, keyQueue)) {
       if (isQuitKey(key)) break;
-      if (mode == MODE_KEY_CODES) {
+      if (key == KEY_SCREENSHOT && mode != MODE_KEY_CODES) {
+        sendScreen();
+      } else if (mode == MODE_KEY_CODES) {
         sprintf(buf, "%u ", key);
         termPuts(buf);
       } else {
@@ -833,6 +879,7 @@ static short menu(void)
     }
 
     if (!OSdequeue(&key, keyQueue)) {
+      if (key == KEY_SCREENSHOT) sendScreen();
       if (isQuitKey(key)) key = KEY_ESC;
       if ((key >= KEY_F1 && key <= KEY_F5) || key == KEY_ESC) choice = key;
     } else if (OSTimerExpired(USER_TIMER)) {

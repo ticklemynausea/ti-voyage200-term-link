@@ -5,6 +5,9 @@
 #   make shell               run a shell here with the calculator as its terminal
 #                            (another command: make shell CMD=top)
 #                            (also show it here and type here: make shell MIRROR=1)
+#   make screenshots         attach to the ESP32 and run nothing: only save the
+#                            screens the calculator sends with 2nd + APPS, in
+#                            screenshots/ (make shell saves them too)
 #
 # For the ESP32 the target starts with the board, esp32_stamps3 or
 # esp32_cardputer, then the sketch, then build or flash:
@@ -82,7 +85,11 @@ shell:
 	$(need_port)
 	python3 tools/shell.py --port $(PORT) $(if $(MIRROR),--mirror) $(CMD)
 
-.PHONY: shell calc\:term\:build calc\:term\:send \
+screenshots:
+	$(need_port)
+	python3 tools/shell.py --port $(PORT) --no-shell
+
+.PHONY: shell screenshots calc\:term\:build calc\:term\:send \
 	esp32_stamps3\:term\:build esp32_stamps3\:term\:flash \
 	esp32_stamps3\:linetest\:build esp32_stamps3\:linetest\:flash \
 	esp32_cardputer\:term\:build esp32_cardputer\:term\:flash \

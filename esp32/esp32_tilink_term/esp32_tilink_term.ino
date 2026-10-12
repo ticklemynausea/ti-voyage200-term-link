@@ -16,6 +16,9 @@
  *   'x'  the session is over
  *   'w'  asks for the Wi-Fi status, for the menu's status bar. The answer is
  *        0x1E 'w', a line of text and a newline. It leaves the backend alone.
+ *   'p'  a screenshot: the 3840 bytes of the calculator's screen follow, as
+ *        they are. It leaves the backend alone too. With a computer attached
+ *        (paced raw mode, below) they are passed on as 0x1E 'p' and the bytes.
  * A real 0x1E byte from the calculator arrives doubled.
  *
  * Serial has two modes:
@@ -28,7 +31,10 @@
  *
  * A program on the host (tools/shell.py) switches modes with a control
  * line that works in either mode: three 0x1E bytes, then "raw" or "monitor",
- * then a newline.
+ * then a newline. "raw" is answered with 0x1E 'r', and at power-up the sketch
+ * sends 0x1E 'b'. Monitor mode prints text meant for a person, which a
+ * program that believes it is in raw mode would take for the calculator's
+ * keys: the two marks let it notice a restart and wait for raw mode again.
  *
  * Raw mode entered that way is paced. The link is far slower than USB, and
  * the ESP32 drops serial bytes it has no room for, so the host may only have
@@ -99,6 +105,14 @@ uint8_t typedCount = 0;
 const char PREFS_NAMESPACE[] = "tilink";
 Ssh::Target target;
 
+// A screenshot on its way in from the calculator: 240 x 128 pixels, one bit
+// each. While it arrives nothing is sent to the calculator.
+const size_t SHOT_BYTES = 3840;
+const uint32_t SHOT_GAP_MS = 2000;  // a longer silence means the rest is not coming
+uint8_t shot[SHOT_BYTES];
+size_t shotLeft = 0;
+uint32_t shotLastMs = 0;
+
 // Pacing of raw mode, see the top of the file.
 const uint8_t ACK_EVERY = 32;
 bool paced = false;
@@ -153,9 +167,26 @@ void reportLinkError(const char *what) {
                 ti.lastErrText(), ti.lastErrTip, ti.lastErrRing);
 }
 
+void finishShot() {
+  if (rawMode && paced) {
+    Serial.write(CONTROL_MARK);
+    Serial.write('p');
+    Serial.write(shot, SHOT_BYTES);
+    Display::log("screenshot sent to the computer");
+  } else {
+    Display::log("screenshot: no computer attached");
+    if (!rawMode) Serial.println("\nA screenshot arrived. Run \"make screenshots\" or \"make shell\" to save them.");
+  }
+}
+
 // Takes everything the calculator is sending right now.
 void pumpFromCalc() {
   showStatus();
+  if (shotLeft && millis() - shotLastMs > SHOT_GAP_MS) {
+    shotLeft = 0;
+    Display::log("screenshot: cut short");
+    if (!rawMode) Serial.println("\n! The screenshot stopped part way.");
+  }
   if (linkDown) {
     if (!ti.lineIdle()) return;
     linkDown = false;
@@ -175,10 +206,21 @@ void pumpFromCalc() {
       }
       return;
     }
-    if (markFromCalc) {
+    if (shotLeft) {
+      fromCalc++;
+      shot[SHOT_BYTES - shotLeft] = (uint8_t)b;
+      shotLastMs = millis();
+      if (--shotLeft == 0) finishShot();
+    } else if (markFromCalc) {
       markFromCalc = false;
-      if (b == CONTROL_MARK) forwardFromCalc((uint8_t)b);
-      else if (pendingCount < sizeof(pendingCommands)) pendingCommands[pendingCount++] = (char)b;
+      if (b == CONTROL_MARK) {
+        forwardFromCalc((uint8_t)b);
+      } else if (b == 'p') {
+        shotLeft = SHOT_BYTES;
+        shotLastMs = millis();
+      } else if (pendingCount < sizeof(pendingCommands)) {
+        pendingCommands[pendingCount++] = (char)b;
+      }
     } else if (b == CONTROL_MARK) {
       markFromCalc = true;
     } else {
@@ -197,6 +239,7 @@ bool sendToCalc(uint8_t b) {
   uint32_t t0 = millis();
   for (;;) {
     pumpFromCalc();
+    if (shotLeft) continue;  // a screenshot is arriving: the link is the calculator's
     if (ti.sendByte(b)) { toCalc++; return true; }
     bool nothingSent = ti.lastErrBit == 0 && ti.lastErrStage != 7;
     if (!nothingSent || millis() - t0 > SEND_PATIENCE_MS) break;
@@ -580,6 +623,9 @@ void setup() {
     WiFi.begin(target.wifiName.c_str(), target.wifiPassword.c_str());
   }
   delay(500);
+  // For a program that was attached before the restart, see the top of the file.
+  Serial.write(CONTROL_MARK);
+  Serial.write('b');
   Serial.println("\nTI link terminal bridge ready. Run term() on the calculator.");
   Serial.printf("Line idle: %s\n", ti.lineIdle() ? "yes" : "NO - check wiring / calculator on?");
   Serial.println(HELP);
@@ -587,8 +633,13 @@ void setup() {
 }
 
 void handleControl(const String &word) {
-  if (word == "raw") rawMode = paced = true;
-  else if (word == "monitor") rawMode = paced = false;
+  if (word == "raw") {
+    rawMode = paced = true;
+    Serial.write(CONTROL_MARK);
+    Serial.write('r');
+  } else if (word == "monitor") {
+    rawMode = paced = false;
+  }
   Display::log(rawMode ? "computer attached" : "computer detached");
   unacked = 0;
   line = "";
