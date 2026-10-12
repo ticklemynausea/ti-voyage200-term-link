@@ -33,6 +33,15 @@ specification.
 |---|---|
 | ![The calculator showing the terminal's menu](docs/pics/voyage200-menu.png) | ![The calculator in a session with Claude Code](docs/pics/voyage200-claude-code.png) |
 
+### With the Cardputer: no cables to anything else
+
+<img src="docs/pics/cardputer-wireless.png" width="480" alt="A Voyage 200 showing htop, connected by a short cable to an M5Stack Cardputer whose screen shows the SSH status page">
+
+The calculator runs on its own batteries and the Cardputer on its battery.
+The only cable is the short one between the two; the session is SSH over
+the Cardputer's Wi-Fi, here running `htop`. The Cardputer's screen shows
+the bridge's status page.
+
 ## What is here
 
 | Part | What it does | Read |
