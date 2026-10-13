@@ -56,8 +56,8 @@ make shell                      # optional: a shell on this computer for the Ser
 ```
 
 Run `term()` on the calculator. F3 opens the settings: the Wi-Fi network,
-the SSH host, and a key for logging in without a password. F2 connects over
-SSH, F1 uses the shell from `make shell`. The keys, the settings and what
+up to eight SSH hosts, and a key for logging in without a password. F2
+connects over SSH to the host picked there, F1 uses the shell from `make shell`. The keys, the settings and what
 was learned on the way are in [terminal.md](terminal.md).
 
 For several windows on the calculator's screen, see

@@ -39,9 +39,13 @@ void sayf(Ssh::SayFn say, const char *format, ...) {
   say(line);
 }
 
+String hostKeyName(uint8_t slot) {
+  return String(PREFS_HOST_KEY) + slot;
+}
+
 // Trust on first use: the key's fingerprint is stored with the host's name
 // and has to match on every later connection.
-bool hostKeyAccepted(const String &host, Ssh::SayFn say) {
+bool hostKeyAccepted(const String &host, uint8_t slot, Ssh::SayFn say) {
   ssh_key key = nullptr;
   unsigned char *hash = nullptr;
   size_t hashLen = 0;
@@ -57,14 +61,20 @@ bool hostKeyAccepted(const String &host, Ssh::SayFn say) {
 
   Preferences prefs;
   prefs.begin(PREFS_NAMESPACE, false);
-  String known = prefs.getString(PREFS_HOST_KEY, "");
+  String name = hostKeyName(slot);
+  // Before there were several hosts the only one's key had no number.
+  if (slot == 1 && !prefs.isKey(name.c_str()) && prefs.isKey(PREFS_HOST_KEY)) {
+    prefs.putString(name.c_str(), prefs.getString(PREFS_HOST_KEY, ""));
+    prefs.remove(PREFS_HOST_KEY);
+  }
+  String known = prefs.getString(name.c_str(), "");
   bool ok = true;
   if (known.length() == 0 || !known.startsWith(host + " ")) {
-    prefs.putString(PREFS_HOST_KEY, seen);
+    prefs.putString(name.c_str(), seen);
     say("First connection to this host: its key is now remembered.");
   } else if (known != seen) {
     say("THE HOST'S KEY HAS CHANGED. Not connecting.");
-    say("If that is expected, type /forgethost in the Serial Monitor.");
+    sayf(say, "If that is expected, type /forgethost %u in the Serial Monitor.", slot);
     ok = false;
   }
   prefs.end();
@@ -95,7 +105,7 @@ bool connect(const Ssh::Target &target, Ssh::SayFn say) {
   ssh_options_set(session, SSH_OPTIONS_TIMEOUT, &timeout);
 
   if (ssh_connect(session) != SSH_OK) return fail(say, "Connection failed");
-  if (!hostKeyAccepted(target.host, say)) { Ssh::close(); return false; }
+  if (!hostKeyAccepted(target.host, target.slot, say)) { Ssh::close(); return false; }
   return true;
 }
 
@@ -296,9 +306,10 @@ void Ssh::write(const uint8_t *data, size_t len) {
   if (channel) ssh_channel_write(channel, data, len);
 }
 
-void Ssh::forgetHostKey() {
+void Ssh::forgetHostKey(uint8_t slot) {
   Preferences prefs;
   prefs.begin(PREFS_NAMESPACE, false);
-  prefs.remove(PREFS_HOST_KEY);
+  prefs.remove(hostKeyName(slot).c_str());
+  if (slot == 1) prefs.remove(PREFS_HOST_KEY);  // from before there were several hosts
   prefs.end();
 }

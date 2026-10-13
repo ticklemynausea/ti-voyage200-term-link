@@ -7,7 +7,7 @@ any host it can reach by SSH over Wi-Fi.
 
 ![The Voyage 200 runs calc/term and connects over its link port to an ESP32 running esp32_tilink_term, which reaches a shell on the computer over USB serial and shell/shell.py, or a shell on another host over Wi-Fi and SSH](pics/diagram.svg)
 
-- **`calc/term/`** is the calculator program (about 12 KB), built with
+- **`calc/term/`** is the calculator program (about 13 KB), built with
   TIGCC / GCC4TI. It opens on a menu that picks where the session goes. It
   draws its own fixed-width 3x5 font, because the calculator's small font is
   proportional. The glyphs are drawn as text in `font.txt`. It handles the
@@ -38,7 +38,7 @@ Move the calculator to the ESP32's pigtail and run `term()`. The menu:
 | Key | Entry |
 |---|---|
 | F1 | Serial: the shell that `make shell` runs on the computer |
-| F2 | SSH: a shell on the host in the settings, over Wi-Fi |
+| F2 | SSH: a shell on one of the hosts in the settings, over Wi-Fi |
 | F3 | Settings: a menu of its own, below |
 | F4 | Debug: a menu of its own, below |
 | F5 | Help: the keys and the menu, from `calc/term/help.txt` |
@@ -49,9 +49,27 @@ Settings:
 | Key | Entry |
 |---|---|
 | F1 | Wi-Fi: the network and its password |
-| F2 | SSH host: the host and the user |
+| F2 | SSH hosts: sets, changes or removes one of the hosts |
 | F3 | SSH key: makes the ESP32's own key, replaces it or removes it |
-| F4 | Copy the key: puts the public key on the host, after asking |
+| F4 | Copy the key: puts the public key on one of the hosts, after asking |
+
+The ESP32 keeps up to eight SSH hosts, one for each of the keys F1 to F8.
+SSH, SSH hosts and Copy the key first show them as a menu, where the F key
+picks the host:
+
+```
+SSH
+
+   F1   mario@server.example
+   F2   pi@192.168.1.20:2222
+   F3   -
+   ...
+   F8   -
+   ESC  Back
+```
+
+A key with no host does nothing, except under SSH hosts, where it sets
+one. The list is asked from the ESP32 each time the menu is shown.
 
 Debug:
 
@@ -61,7 +79,7 @@ Debug:
 | F2 | Test pattern, with the time a full screen takes |
 | F3 | Key codes: shows each key's code |
 
-ESC in either goes back to the main menu.
+ESC in any of them goes one menu back.
 
 The menu's bottom row shows the Wi-Fi status, asked from the ESP32 every
 three seconds: the network, signal strength and address, or that it is not
@@ -80,11 +98,13 @@ nothing, and Ctrl-C stops it.
 
 For SSH, go through Settings first. Wi-Fi lists the networks the ESP32
 sees and asks for the network (by number or name) and its password. SSH
-host asks for the host (`host` or `host:port`) and the user. They are
-stored in the ESP32's flash (the Preferences library), so they survive
+hosts, then an F key, asks for that host (`host` or `host:port`) and its
+user; on a host that is already set it first offers to change or remove
+it. They are stored in the ESP32's flash (the Preferences library), so they survive
 power cycles and reflashing, and the Wi-Fi password is readable there by
 anyone holding the board. `/settings` in the Serial Monitor shows what is
-stored, without the password.
+stored, without the password. An ESP32 that had a single host from before
+keeps it, as the first one.
 
 **Logging in.** Without a key, the SSH password is asked for at every
 connection and never stored. To skip it, the ESP32 can have a key of its
@@ -92,23 +112,28 @@ own:
 
 1. Settings, F3 makes an ed25519 key pair on the ESP32 and shows its
    fingerprint. This talks to no host.
-2. Settings, F4 copies the public half to the host. It shows the
+2. Settings, F4, then the host's F key, copies the public half to that
+   host. It shows the
    fingerprint and the `user@host` it is about to change, and goes ahead
    only when `yes` is typed. It then logs in with the password once and
    adds a line ending in `voyage200` to `~/.ssh/authorized_keys` there.
 
-From then on SSH logs in with the key. If the host refuses it, the password
-is asked for as before. F3 also replaces or removes the key; the host keeps
-its line until it is deleted there.
+From then on SSH to that host logs in with the key. There is one key for
+all the hosts, and step 2 is done once for each host that should take it.
+If a host refuses the key, the password is asked for as before. F3 also
+replaces or removes the key; the hosts keep their line until it is deleted
+there.
 
 The private key never leaves the ESP32, and it is stored there unencrypted:
 whoever holds the board can log in to the hosts that have its public half.
 `/pubkey` in the Serial Monitor prints the public key line, to add to a
 host by hand instead.
 
-The host's key is remembered at the first connection and checked
-afterwards; if it changes, the connection is refused until `/forgethost` is
-typed in the Serial Monitor.
+Each host's key is remembered at the first connection and checked
+afterwards; if it changes, the connection is refused until `/forgethost 3`
+(for the third host; without a number, all of them) is typed in the Serial
+Monitor. Changing a host's name or port, or removing it, forgets its key
+too.
 
 ## How the pieces talk
 
@@ -122,17 +147,21 @@ sent twice.
 | Bytes | Meaning |
 |---|---|
 | `1E 's'` | a Serial session starts |
-| `1E 'h'` | an SSH session starts |
+| `1E '1'` to `1E '8'` | selects one of the SSH hosts for the `h`, `k` or `i` that follows |
+| `1E 'h'` | an SSH session with the selected host starts |
 | `1E 'n'` | the Wi-Fi settings dialog starts |
-| `1E 'k'` | the SSH host and user dialog starts |
+| `1E 'k'` | the dialog for the selected host and its user starts |
 | `1E 'g'` | the SSH key dialog starts |
-| `1E 'i'` | the dialog that copies the key to the host starts |
+| `1E 'i'` | the dialog that copies the key to the selected host starts |
 | `1E 'x'` | the session is over |
 | `1E 'w'` | what is the Wi-Fi status? |
+| `1E 'l'` | which are the SSH hosts? |
 | `1E 'p'` | a screenshot: the 3840 bytes of the screen follow, as they are |
 
-**ESP32 to calculator.** Plain terminal output, except the answer to the
-status question: `1E 'w'`, a line of text, a newline.
+**ESP32 to calculator.** Plain terminal output, except two answers. To the
+status question: `1E 'w'`, a line of text, a newline. To the hosts
+question: `1E 'l'`, then eight lines, each `user@host` (with `:port` if it
+is not 22) or empty, each ended by a newline.
 
 **Computer to ESP32** (`shell/shell.py`). Three `0x1E` bytes, a word and a
 newline switch the sketch's serial mode: `raw` or `monitor`. In raw mode

@@ -491,6 +491,12 @@ static const char MODE_LETTERS[] = "shnkgi";
 
 static short online;  // the session's bytes go out of the link
 
+// The ESP32 keeps up to MAX_HOSTS SSH hosts, one for each of F1 to F8. The
+// one a session is about is told to it with LINK_MARK and its digit, before
+// the session's letter.
+#define MAX_HOSTS 8
+static short hostSlot;  // from 1
+
 static void linkCommand(char letter)
 {
   char command[2];
@@ -692,6 +698,7 @@ static void session(short mode)
 
   if (online) {
     OSLinkOpen();  // drops whatever is still queued
+    if (mode == MODE_SSH || mode == MODE_SSH_HOST || mode == MODE_SSH_COPY) linkCommand('0' + hostSlot);
     linkCommand(MODE_LETTERS[mode]);
     // Ctrl-L: a shell that is already waiting redraws its prompt.
     if (mode == MODE_SERIAL) hostSend("\x0C", 1);
@@ -818,6 +825,86 @@ static short submenu(const char *text, short entries)
   }
 }
 
+#define HOST_FIRST_ROW 3  // of F1's entry, counted from 1; the next is two rows down
+#define HOST_COL 9        // where an entry's text starts, counted from 1
+
+// The menu of the ESP32's SSH hosts, which it is asked for with LINK_MARK 'l'.
+// Its answer is LINK_MARK 'l' and a line for each host, empty if not set.
+// Returns the host chosen, from 1, or 0 for ESC. A host that is not set can
+// be chosen only with emptyToo.
+static short hostMenu(const char *title, const char *hint, short emptyToo)
+{
+  char buf[64];
+  unsigned short key;
+  char isSet[MAX_HOSTS];
+  short step = 0;   // 0 other bytes, 1 after LINK_MARK, 2 in the list
+  short line = 0;   // of the list, MAX_HOSTS once it is complete
+  short col = 0;
+  short n, i;
+
+  termPuts("\x1B" "c");
+  termPuts(title);
+  termPuts("\r\n\r\n");
+  for (i = 0; i < MAX_HOSTS; i++) {
+    sprintf(buf, "  \x1B[7m F%d \x1B[0m\r\n\r\n", i + 1);
+    termPuts(buf);
+  }
+  termPuts("  \x1B[7m ESC \x1B[0m Back");
+
+  drawStatus("Asking the ESP32 for the hosts...", 33);
+  linkCommand('l');
+  OSRegisterTimer(USER_TIMER, STATUS_TICKS);
+
+  for (;;) {
+    n = OSReadLinkBlock(buf, sizeof(buf));
+    for (i = 0; i < n; i++) {
+      char c = buf[i];
+      if (step == 0) {
+        if (c == LINK_MARK) step = 1;
+      } else if (step == 1) {
+        step = (c == 'l') ? 2 : 0;
+        line = col = 0;
+      } else {
+        if (col == 0) {
+          char seq[16];
+          sprintf(seq, "\x1B[%d;%dH\x1B[K", HOST_FIRST_ROW + 2 * line, HOST_COL);
+          termPuts(seq);
+        }
+        if (c != '\n') {
+          if (col < COLS - HOST_COL) termWrite(&c, 1);
+          col++;
+        } else {
+          if (col == 0) termPuts("-");
+          isSet[line] = col > 0;
+          col = 0;
+          if (++line == MAX_HOSTS) {
+            drawStatus(hint, strlen(hint));
+            step = 0;
+          }
+        }
+      }
+    }
+
+    if (!OSdequeue(&key, keyQueue)) {
+      if (key == KEY_SCREENSHOT) sendScreen();
+      if (key == KEY_ESC || isQuitKey(key)) { key = 0; break; }
+      if (line == MAX_HOSTS && key >= KEY_F1 && key < (unsigned short)(KEY_F1 + MAX_HOSTS) &&
+          (emptyToo || isSet[key - KEY_F1])) {
+        key = key - KEY_F1 + 1;
+        break;
+      }
+    } else if (line < MAX_HOSTS && OSTimerExpired(USER_TIMER)) {
+      drawStatus("ESP32: no answer", 16);
+      linkCommand('l');
+      OSTimerRestart(USER_TIMER);
+    } else if (n == 0) {
+      idle();
+    }
+  }
+  OSFreeTimer(USER_TIMER);
+  return key;
+}
+
 static void settingsMenu(void)
 {
   short choice;
@@ -826,12 +913,20 @@ static void settingsMenu(void)
     choice = submenu(
       "Settings\r\n\r\n"
       "  \x1B[7m F1 \x1B[0m  Wi-Fi         network and password\r\n\r\n"
-      "  \x1B[7m F2 \x1B[0m  SSH host      host and user\r\n\r\n"
+      "  \x1B[7m F2 \x1B[0m  SSH hosts     up to 8, each a host and a user\r\n\r\n"
       "  \x1B[7m F3 \x1B[0m  SSH key       make this ESP32's key, or remove it\r\n\r\n"
-      "  \x1B[7m F4 \x1B[0m  Copy the key  to the host, for SSH without password\r\n\r\n",
+      "  \x1B[7m F4 \x1B[0m  Copy the key  to a host, for SSH without password\r\n\r\n",
       4);
     if (!choice) return;
-    session(MODE_WIFI + choice - 1);
+    if (choice == 2) {
+      while ((hostSlot = hostMenu("SSH hosts", " F1 to F8: set, change or remove that host", 1)))
+        session(MODE_SSH_HOST);
+    } else if (choice == 4) {
+      while ((hostSlot = hostMenu("Copy the key to a host", " F1 to F8: copy the ESP32's key to that host", 0)))
+        session(MODE_SSH_COPY);
+    } else {
+      session(MODE_WIFI + choice - 1);
+    }
   }
 }
 
@@ -868,7 +963,7 @@ static short menu(void)
   termPuts("Voyage 200 terminal, built " __DATE__ " " __TIME__ "\r\n\r\n");
   termPuts("  \x1B[7m F1 \x1B[0m  Serial        a shell on the computer, over USB\r\n\r\n");
   termPuts("  \x1B[7m F2 \x1B[0m  SSH           over the ESP32's Wi-Fi\r\n\r\n");
-  termPuts("  \x1B[7m F3 \x1B[0m  Settings      Wi-Fi, SSH host and user, SSH key\r\n\r\n");
+  termPuts("  \x1B[7m F3 \x1B[0m  Settings      Wi-Fi, SSH hosts, SSH key\r\n\r\n");
   termPuts("  \x1B[7m F4 \x1B[0m  Debug         local echo, test pattern, key codes\r\n\r\n");
   termPuts("  \x1B[7m F5 \x1B[0m  Help          the keys in a session\r\n\r\n");
   termPuts("  \x1B[7m ESC \x1B[0m Exit\r\n\r\n");
@@ -915,7 +1010,10 @@ static short menu(void)
 
   switch (choice) {
     case KEY_F1: session(MODE_SERIAL); break;
-    case KEY_F2: session(MODE_SSH); break;
+    case KEY_F2:
+      hostSlot = hostMenu("SSH", " F1 to F8: connect to that host", 0);
+      if (hostSlot) session(MODE_SSH);
+      break;
     case KEY_F3: settingsMenu(); break;
     case KEY_F4: debugMenu(); break;
     case KEY_F5: showHelp(); break;

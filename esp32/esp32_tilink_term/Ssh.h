@@ -9,8 +9,9 @@
  * The key is an ed25519 pair made here and kept in flash, unencrypted.
  * Nothing puts it on a host except copyKeyToHost().
  *
- * The host's key is remembered the first time and checked from then on. If
- * it ever differs, the connection is refused until forgetHostKey() is called.
+ * A host's key is remembered the first time and checked from then on, for
+ * each of the hosts in the settings separately. If it ever differs, the
+ * connection is refused until forgetHostKey() is called.
  */
 #pragma once
 #include <Arduino.h>
@@ -22,6 +23,7 @@ struct Target {
   String host;  // name or address
   uint16_t port;
   String user;
+  uint8_t slot;  // which of the stored hosts, from 1: names its remembered key
 };
 
 // Prints one line of progress or error.
@@ -44,7 +46,7 @@ void write(const uint8_t *data, size_t len);
 // Joins the network, dropping a connection to a different one.
 bool joinWifi(const Target &target, SayFn say);
 
-void forgetHostKey();
+void forgetHostKey(uint8_t slot);
 
 // The ESP32's own key pair.
 bool hasKey();

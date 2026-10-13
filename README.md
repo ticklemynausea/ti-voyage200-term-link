@@ -11,7 +11,7 @@ screen make the setup portable.
 
 ![A Voyage 200 running Claude Code, wired to an M5Stack Stamp S3 on a breadboard](docs/pics/stamp-s3-claude-code.png)
 
-A 12 KB C program turns the calculator into a 60x21 VT220
+A 13 KB C program turns the calculator into a 60x21 VT220
 terminal. From its menu you open a shell on the computer the ESP32 is plugged
 into, or an SSH session to any host over Wi-Fi.
 

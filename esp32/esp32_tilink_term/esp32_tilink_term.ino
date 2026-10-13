@@ -7,12 +7,17 @@
  *
  * The calculator picks the backend from its menu, with 0x1E and a letter:
  *   's'  Serial: the USB serial port, described below
- *   'h'  SSH: a shell on the host in the settings, over Wi-Fi (see Ssh.h)
+ *   'h'  SSH: a shell on the selected host, over Wi-Fi (see Ssh.h)
  *   'n'  Wi-Fi settings: asks on the calculator for the network and its
  *        password, and stores them in the ESP32's flash (Preferences)
- *   'k'  SSH settings: the host and the user, stored likewise
+ *   'k'  SSH settings: the selected host and its user, stored likewise
  *   'g'  SSH key: makes the ESP32's own key pair, or removes it
- *   'i'  copies the public key to the host, after asking
+ *   'i'  copies the public key to the selected host, after asking
+ *   '1' to '8'  selects one of the stored hosts for the 'h', 'k' or 'i'
+ *        that follows, and does nothing else
+ *   'l'  asks for the list of hosts, for the calculator's host menu. The
+ *        answer is 0x1E 'l' and one line for each of the 8 hosts, user@host
+ *        or empty, each ended by a newline. It leaves the backend alone.
  *   'x'  the session is over
  *   'w'  asks for the Wi-Fi status, for the menu's status bar. The answer is
  *        0x1E 'w', a line of text and a newline. It leaves the backend alone.
@@ -70,7 +75,7 @@ const uint8_t PIN_RING = 5;
 const uint32_t SEND_PATIENCE_MS = 5000;
 
 const char HELP[] =
-  "Commands: /stats | /burst [bytes] | /raw | /settings | /pubkey | /forgethost | /help   (anything else is sent)";
+  "Commands: /stats | /burst [bytes] | /raw | /settings | /pubkey | /forgethost [n] | /help   (anything else is sent)";
 
 // Internal pull-ups on: with the calculator unplugged the lines then read as
 // idle instead of floating, which would otherwise arrive as garbage bytes.
@@ -103,7 +108,18 @@ uint8_t typedCount = 0;
 
 // Kept in flash under these names. The SSH password is never stored.
 const char PREFS_NAMESPACE[] = "tilink";
-Ssh::Target target;
+Ssh::Target target;  // the Wi-Fi part only: the host comes from hosts[]
+
+// The SSH hosts, one for each of the calculator's keys F1 to F8.
+const uint8_t MAX_HOSTS = 8;
+struct Host {
+  String host;  // name or address
+  uint16_t port = 22;
+  String user;
+  bool isSet() const { return host.length() && user.length(); }
+};
+Host hosts[MAX_HOSTS];
+uint8_t slot = 1;  // the host the calculator selected, from 1
 
 // A screenshot on its way in from the calculator: 240 x 128 pixels, one bit
 // each. While it arrives nothing is sent to the calculator.
@@ -136,7 +152,10 @@ void showStatus() {
   s.dropped = dropped;
   s.resends = retries;
   s.errors = ti.errors;
-  if (target.user.length() && target.host.length()) s.sshTarget = target.user + "@" + target.host;
+  uint8_t hostsSet = 0;
+  for (const Host &h : hosts) hostsSet += h.isSet();
+  if (backend == BACKEND_SSH) s.sshTarget = hostLabel(slot);
+  else if (hostsSet) s.sshTarget = String(hostsSet) + (hostsSet == 1 ? " SSH host" : " SSH hosts");
   s.wifiName = target.wifiName;
   s.wifiUp = WiFi.status() == WL_CONNECTED;
   s.rssi = s.wifiUp ? WiFi.RSSI() : 0;
@@ -309,14 +328,40 @@ bool askOnCalc(const char *prompt, bool hidden, String &answer) {
 
 // ---------- settings ----------
 
+// user@host, with the port if it is not 22. Empty for a host that is not set.
+String hostLabel(uint8_t n) {
+  const Host &h = hosts[n - 1];
+  if (!h.isSet()) return "";
+  return h.user + "@" + h.host + (h.port == 22 ? String() : ":" + String(h.port));
+}
+
+// What Ssh needs to reach a host: the Wi-Fi settings and the host's own.
+Ssh::Target targetFor(uint8_t n) {
+  Ssh::Target t = target;
+  t.host = hosts[n - 1].host;
+  t.port = hosts[n - 1].port;
+  t.user = hosts[n - 1].user;
+  t.slot = n;
+  return t;
+}
+
 void loadSettings() {
   Preferences prefs;
   prefs.begin(PREFS_NAMESPACE, true);
   target.wifiName = prefs.getString("wifiname", "");
   target.wifiPassword = prefs.getString("wifipass", "");
-  target.host = prefs.getString("host", "");
-  target.port = prefs.getUShort("port", 22);
-  target.user = prefs.getString("user", "");
+  for (uint8_t i = 0; i < MAX_HOSTS; i++) {
+    String n(i + 1);
+    hosts[i].host = prefs.getString(("host" + n).c_str(), "");
+    hosts[i].port = prefs.getUShort(("port" + n).c_str(), 22);
+    hosts[i].user = prefs.getString(("user" + n).c_str(), "");
+  }
+  // Before there were several hosts the only one was stored without a number.
+  if (!prefs.isKey("host1") && prefs.isKey("host")) {
+    hosts[0].host = prefs.getString("host", "");
+    hosts[0].port = prefs.getUShort("port", 22);
+    hosts[0].user = prefs.getString("user", "");
+  }
   prefs.end();
 }
 
@@ -325,14 +370,21 @@ void saveSettings() {
   prefs.begin(PREFS_NAMESPACE, false);
   prefs.putString("wifiname", target.wifiName);
   prefs.putString("wifipass", target.wifiPassword);
-  prefs.putString("host", target.host);
-  prefs.putUShort("port", target.port);
-  prefs.putString("user", target.user);
+  for (uint8_t i = 0; i < MAX_HOSTS; i++) {
+    String n(i + 1);
+    prefs.putString(("host" + n).c_str(), hosts[i].host);
+    prefs.putUShort(("port" + n).c_str(), hosts[i].port);
+    prefs.putString(("user" + n).c_str(), hosts[i].user);
+  }
+  prefs.remove("host");  // the names from before there were several hosts
+  prefs.remove("port");
+  prefs.remove("user");
   prefs.end();
 }
 
-bool settingsComplete() {
-  return target.wifiName.length() && target.host.length() && target.user.length();
+// SSH to the selected host can be tried.
+bool sshReady() {
+  return target.wifiName.length() && hosts[slot - 1].isSet();
 }
 
 // Asks for one setting, showing the current value; an empty answer keeps it.
@@ -380,10 +432,33 @@ void editWifi() {
   sayToCalc(BACK_HINT);
 }
 
+// Sets, changes or removes the selected host.
 void editSshHost() {
-  Ssh::Target edited = target;
+  Host &current = hosts[slot - 1];
+  Host edited = current;
 
-  sayToCalc("SSH host and user. ENTER keeps the value in brackets.");
+  sayToCalc(("SSH host " + String(slot)).c_str());
+  if (current.isSet()) {
+    sayToCalc(("  " + hostLabel(slot)).c_str());
+    sayToCalc(" 1  change it");
+    sayToCalc(" 2  remove it");
+    String choice;
+    if (!askOnCalc("1, 2, or ENTER to leave it: ", false, choice)) return;
+    if (choice == "2") {
+      current = Host();
+      saveSettings();
+      Ssh::forgetHostKey(slot);
+      sayToCalc("Removed.");
+    } else if (choice != "1") {
+      sayToCalc("The host was left as it is.");
+    }
+    if (choice != "1") {
+      sayToCalc(BACK_HINT);
+      return;
+    }
+  }
+
+  sayToCalc("ENTER keeps the value in brackets.");
   String host = edited.port == 22 ? edited.host : edited.host + ":" + edited.port;
   if (!askSetting("Host (name or address, optionally :port)", host, false)) return;
   int colon = host.lastIndexOf(':');
@@ -393,9 +468,15 @@ void editSshHost() {
 
   if (!askSetting("User", edited.user, false)) return;
 
-  target = edited;
-  saveSettings();
-  sayToCalc("Saved.");
+  if (!edited.isSet()) {
+    sayToCalc("A host and a user are both needed. Nothing was saved.");
+  } else {
+    // A different machine may answer now: its key is learned anew.
+    if (edited.host != current.host || edited.port != current.port) Ssh::forgetHostKey(slot);
+    current = edited;
+    saveSettings();
+    sayToCalc("Saved.");
+  }
   sayToCalc(BACK_HINT);
 }
 
@@ -450,25 +531,26 @@ void editSshKey() {
   if (!pendingCount) sayToCalc(BACK_HINT);
 }
 
-// Puts the public key on the host, only after the user has read what that
-// means and typed yes.
+// Puts the public key on the selected host, only after the user has read
+// what that means and typed yes.
 void copySshKey() {
+  Ssh::Target to = targetFor(slot);
   sayToCalc("Copy the key to the host");
   if (!Ssh::hasKey()) {
     sayToCalc("This ESP32 has no key yet: Settings, F3 makes one.");
-  } else if (!settingsComplete()) {
-    sayToCalc("Set the Wi-Fi (F1) and the SSH host and user (F2) first.");
+  } else if (!sshReady()) {
+    sayToCalc("Set the Wi-Fi (F1) and this SSH host (F2) first.");
   } else {
     sayToCalc("This adds the public key");
     sayToCalc(("  " + Ssh::keyFingerprint()).c_str());
-    sayToCalc(("to ~/.ssh/authorized_keys of " + target.user + "@" + target.host + ".").c_str());
+    sayToCalc(("to ~/.ssh/authorized_keys of " + to.user + "@" + to.host + ".").c_str());
     sayToCalc("Whoever holds this ESP32 can then log in there");
     sayToCalc("without a password.");
     if (!confirmedOnCalc("Go ahead? Type yes: ")) {
       if (!pendingCount) sayToCalc("Nothing was copied.");
-    } else if (Ssh::copyKeyToHost(target, sayToCalc, askOnCalc)) {
+    } else if (Ssh::copyKeyToHost(to, sayToCalc, askOnCalc)) {
       Display::log("SSH key copied to the host");
-      sayToCalc("Copied. SSH now logs in with the key.");
+      sayToCalc("Copied. SSH to this host now logs in with the key.");
     } else if (!pendingCount) {
       sayToCalc("Nothing was copied.");
     }
@@ -488,11 +570,11 @@ void runCalcCommand(char command) {
   if (command == 's') {
     backend = BACKEND_SERIAL;
   } else if (command == 'h') {
-    if (!settingsComplete()) {
+    if (!sshReady()) {
       sayToCalc("SSH is not set up yet: choose Settings in the menu,");
-      sayToCalc("then Wi-Fi (F1) and SSH host and user (F2).");
+      sayToCalc("then Wi-Fi (F1) and SSH hosts (F2).");
       sayToCalc(BACK_HINT);
-    } else if (Ssh::open(target, sayToCalc, askOnCalc)) {
+    } else if (Ssh::open(targetFor(slot), sayToCalc, askOnCalc)) {
       backend = BACKEND_SSH;
       Display::log("SSH session open");
     } else if (!pendingCount) {
@@ -525,12 +607,24 @@ void sendWifiStatus() {
   sendToCalc('\n');
 }
 
+// The hosts, for the calculator's host menu: a line each, empty if not set.
+void sendHostList() {
+  sendToCalc(CONTROL_MARK);
+  sendToCalc('l');
+  for (uint8_t n = 1; n <= MAX_HOSTS; n++) {
+    sendText(hostLabel(n).c_str());
+    sendToCalc('\n');
+  }
+}
+
 void runPendingCommands() {
   while (pendingCount) {
     char command = pendingCommands[0];
     pendingCount--;
     memmove(pendingCommands, pendingCommands + 1, pendingCount);
     if (command == 'w') sendWifiStatus();
+    else if (command == 'l') sendHostList();
+    else if (command >= '1' && command < '1' + MAX_HOSTS) slot = command - '0';
     else runCalcCommand(command);
   }
 }
@@ -588,17 +682,25 @@ void handleLine(const String &text) {
     long bytes = text.substring(6).toInt();
     burst(bytes > 0 ? bytes : 2000);
   } else if (text == "/settings") {
-    Serial.printf("Wi-Fi network \"%s\" (password %s), SSH %s@%s port %u\n", target.wifiName.c_str(),
-                  target.wifiPassword.length() ? "set" : "not set", target.user.c_str(),
-                  target.host.c_str(), target.port);
+    Serial.printf("Wi-Fi network \"%s\" (password %s)\n", target.wifiName.c_str(),
+                  target.wifiPassword.length() ? "set" : "not set");
+    for (uint8_t n = 1; n <= MAX_HOSTS; n++) {
+      if (hosts[n - 1].isSet()) Serial.printf("SSH host %u: %s\n", n, hostLabel(n).c_str());
+    }
     if (Ssh::hasKey()) Serial.printf("SSH key %s\n", Ssh::keyFingerprint().c_str());
     else Serial.println("No SSH key");
   } else if (text == "/pubkey") {
     if (Ssh::hasKey()) Serial.println(Ssh::publicKeyLine());
     else Serial.println("No SSH key. The calculator's Settings menu makes one.");
-  } else if (text == "/forgethost") {
-    Ssh::forgetHostKey();
-    Serial.println("The SSH host's remembered key is forgotten; the next connection stores it anew.");
+  } else if (text.startsWith("/forgethost")) {
+    long only = text.substring(11).toInt();  // 0 without a number: all of them
+    if (only < 0 || only > MAX_HOSTS) {
+      Serial.printf("The hosts are numbered 1 to %u.\n", MAX_HOSTS);
+    } else {
+      for (uint8_t n = 1; n <= MAX_HOSTS; n++) if (!only || only == n) Ssh::forgetHostKey(n);
+      Serial.println(only ? "That SSH host's remembered key is forgotten; the next connection stores it anew."
+                          : "Every SSH host's remembered key is forgotten; the next connections store them anew.");
+    }
   } else if (text == "/raw") {
     Serial.println("Raw mode: every byte now passes through. Reset the ESP32 to leave it.");
     Serial.flush();
