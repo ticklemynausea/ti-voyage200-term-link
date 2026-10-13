@@ -188,9 +188,11 @@ cannot switch the mode behind its back.
 | letters, digits, punctuation | themselves |
 | ENTER | carriage return |
 | backspace | DEL (code 127), which shells take as "erase one character" |
+| ◆ + backspace (DEL) | Delete, which erases forwards (`ESC [ 3 ~`) |
 | ESC | Escape |
 | arrows | the arrow keys |
 | ◆ + letter | Ctrl + letter (the keyboard has no Ctrl key) |
+| 2nd + I | Shift-Tab (`ESC [ Z`). Tab is ◆ + I, and shift cannot be added to that |
 | ◆ + up / down | Page Up / Page Down |
 | 2nd + up / down | Home / End (2nd + left / right too) |
 | 2nd + plus (CHAR) | a symbol the keyboard lacks, picked from a strip on the bottom two rows |
@@ -233,6 +235,15 @@ are in square brackets:
 **Arrows.** They send the usual codes (`ESC [ A` and so on). Programs such as
 `less` and `vim` ask for the "application" codes instead (`ESC O A`), and
 the arrows, Home and End switch to those until the program switches back.
+
+**Shift-Tab.** 2nd + I sends `ESC [ Z`, which programs that read the keys
+themselves (Claude Code for one) take as Shift-Tab. Programs built on
+ncurses, such as nchat, do not: they look the key up in the terminal's
+description, and `vt220` has no entry for it, inside tmux as well, since
+`tmux_calc.conf` gives its programs the same description. Such a program
+has to be told the sequence. For nchat that is
+`prev_chat=\033\133\132` in `~/.config/nchat/key.conf`, edited while nchat
+is not running.
 
 **Function keys.** F1 to F4 send `ESC O P` to `ESC O S`; F5 to F8 send
 `ESC [ 15 ~`, `17 ~`, `18 ~` and `19 ~`.

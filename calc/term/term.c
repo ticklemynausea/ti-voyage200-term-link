@@ -32,6 +32,9 @@
 #define KEY_2ND 4096
 #define KEY_QUIT (KEY_2ND + KEY_ESC)
 #define KEY_SCREENSHOT (KEY_2ND + KEY_APPS)
+// 2nd + I arrives as the character it types on the calculator, the
+// imaginary i. It stands in for Shift-Tab, next to diamond + I for Tab.
+#define KEY_BACK_TAB 151
 
 // ---------- screen ----------
 
@@ -643,6 +646,10 @@ static void handleKey(unsigned short key)
 
   if (key == KEY_2ND + '+') {
     charMenu();
+  } else if (key == KEY_DIAMOND + KEY_BACKSPACE) {
+    hostSend("\x1B[3~", 4);  // DEL on the keyboard: deletes forwards
+  } else if (key == KEY_BACK_TAB) {
+    hostSend("\x1B[Z", 3);
   } else if (key >= KEY_DIAMOND + '@' && key <= KEY_DIAMOND + '_') {
     c = key - KEY_DIAMOND - '@';
     hostSend(&c, 1);
