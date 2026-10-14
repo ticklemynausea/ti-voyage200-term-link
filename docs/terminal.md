@@ -84,8 +84,11 @@ ESC in any of them goes one menu back.
 
 The menu's bottom row shows the Wi-Fi status, asked from the ESP32 every
 three seconds: the network, signal strength and address, or that it is not
-connected or not set up. When it powers up, the ESP32 joins the network it
-used last.
+connected or not set up. The settings and debug menus show it too. While
+Wi-Fi is not connected, the entries that need it (SSH, and Copy the key in
+Settings) have a checkered key and do not open; Wi-Fi in the main menu
+joins a network. When it powers up, the ESP32 joins the network it used
+last.
 
 `make shell` can be started before or after choosing Serial: its output
 waits until the calculator is in that session. Close the Serial Monitor
@@ -176,7 +179,8 @@ sent twice.
 | `1E 'p'` | a screenshot: the 3840 bytes of the screen follow, as they are |
 
 **ESP32 to calculator.** Plain terminal output, except three answers. To the
-status question: `1E 'w'`, a line of text, a newline. To the hosts
+status question: `1E 'w'`, `+` if Wi-Fi is connected or `-` if not, a line
+of text, a newline. To the hosts
 question: `1E 'l'`, then eight lines, each `user@host` (with `:port` if it
 is not 22) or empty, each ended by a newline. To the networks question:
 `1E 'm'`, then four lines in the same way, each a network's name, with a
