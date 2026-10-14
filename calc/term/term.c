@@ -985,8 +985,9 @@ static short menu(void)
   termPuts("  \x1B[7m F6 \x1B[0m  Help          the keys in a session\r\n\r\n");
   termPuts("  \x1B[7m ESC \x1B[0m Exit\r\n\r\n");
   termPuts("  Exit Shell: 2nd+ESC");
-  putRight(18, "2026 M\xC3\xA1rio Carneiro (@ticklemynausea)");  // a with an acute accent
-  putRight(19, "http://mariocarneiro.info");
+  putRight(17, "2026 M\xC3\xA1rio Carneiro");  // a with an acute accent
+  putRight(18, "@ticklemynausea");
+  putRight(19, "mariocarneiro.info");
 
   drawStatus("Wi-Fi: asking the ESP32...", 26);
   linkCommand('w');
