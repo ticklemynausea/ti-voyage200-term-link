@@ -29,8 +29,7 @@
  *        newline. It leaves the backend alone.
  *   'p'  a screenshot: the 3840 bytes of the calculator's screen follow, as
  *        they are. It leaves the backend alone too. With a computer attached
- *        (paced raw mode, below) they are passed on as 0x1E 'p' and the bytes.
- * A real 0x1E byte from the calculator arrives doubled.
+ *        (paced raw mode, below) they are passed on as 0x1E 'p' and the bytes. * A real 0x1E byte from the calculator arrives doubled.
  *
  * Serial has two modes:
  *   monitor (at power-up)  for the Serial Monitor. A typed line goes to the
@@ -89,6 +88,13 @@ TiLink ti(PIN_TIP, PIN_RING, true);
 
 bool rawMode = false;
 bool linkDown = false;  // both lines held low: calculator off or half plugged
+
+// The lines read idle with nothing plugged in too, so the calculator counts
+// as there only while it is heard from: its program asks for the Wi-Fi
+// status every 3 s in a menu. A quiet session counts as waiting.
+const uint32_t HEARD_MS = 5000;
+uint32_t lastHeardMs = 0;
+bool heardOnce = false;
 uint32_t toCalc = 0, fromCalc = 0, dropped = 0, retries = 0;
 String line;
 
@@ -162,6 +168,7 @@ void showStatus() {
   s.asking = asking;
   s.computerAttached = rawMode;
   s.calcPresent = !linkDown;
+  s.calcHeard = heardOnce && millis() - lastHeardMs < HEARD_MS;
   s.linesIdle = ti.lineIdle();
   s.toCalc = toCalc;
   s.fromCalc = fromCalc;
@@ -241,6 +248,8 @@ void pumpFromCalc() {
       }
       return;
     }
+    lastHeardMs = millis();
+    heardOnce = true;
     if (shotLeft) {
       fromCalc++;
       shot[SHOT_BYTES - shotLeft] = (uint8_t)b;
@@ -275,7 +284,12 @@ bool sendToCalc(uint8_t b) {
   for (;;) {
     pumpFromCalc();
     if (shotLeft) continue;  // a screenshot is arriving: the link is the calculator's
-    if (ti.sendByte(b)) { toCalc++; return true; }
+    if (ti.sendByte(b)) {
+      toCalc++;
+      lastHeardMs = millis();  // it took the byte, bit by bit
+      heardOnce = true;
+      return true;
+    }
     bool nothingSent = ti.lastErrBit == 0 && ti.lastErrStage != 7;
     if (!nothingSent || millis() - t0 > SEND_PATIENCE_MS) break;
     retries++;

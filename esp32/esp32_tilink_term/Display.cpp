@@ -89,8 +89,9 @@ void statusPage(const Status &s) {
   char to[12], from[12];
   rate(to, sizeof(to), toPerSecond);
   rate(from, sizeof(from), fromPerSecond);
-  if (s.calcPresent) add(1, TFT_WHITE, "calculator: connected");
-  else add(1, TFT_RED, "calculator: off or unplugged");
+  if (!s.calcPresent) add(1, TFT_RED, "calculator: off or unplugged");
+  else if (!s.calcHeard) add(1, TFT_ORANGE, "calculator: waiting");
+  else add(1, TFT_WHITE, "calculator: connected");
   add(1, TFT_LIGHTGREY, "to calc %s   from calc %s", to, from);
 }
 
@@ -101,6 +102,7 @@ void linkPage(const Status &s) {
   clock(up, sizeof(up), millis() / 1000);
 
   if (!s.calcPresent) add(1, TFT_RED, "calculator   off or unplugged");
+  else if (!s.calcHeard) add(1, TFT_ORANGE, "calculator   waiting, lines %s", s.linesIdle ? "idle" : "busy");
   else add(1, TFT_WHITE, "calculator   connected, lines %s", s.linesIdle ? "idle" : "busy");
   add(1, TFT_BLACK, "");
   add(1, TFT_WHITE, "to calc      %10lu  %s", (unsigned long)s.toCalc, to);

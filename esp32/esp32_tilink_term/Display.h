@@ -19,7 +19,8 @@ struct Status {
   Mode mode;
   bool asking;            // waiting for an answer typed on the calculator
   bool computerAttached;  // a program on the computer holds the serial port
-  bool calcPresent;
+  bool calcPresent;       // the lines are not both held low
+  bool calcHeard;         // its program said something lately
   bool linesIdle;
   uint32_t toCalc, fromCalc, dropped, resends, errors;
   String sshTarget;       // user@host, empty when not set up

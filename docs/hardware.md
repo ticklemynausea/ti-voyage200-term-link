@@ -90,6 +90,13 @@ Nothing typed there is sent to the shell.
 
 Every page has the battery level in its top bar.
 
+The calculator shows as connected while `term` has been heard from in the
+last 5 seconds, which a menu does by asking for the Wi-Fi status every 3
+seconds, and a session by any byte either way. Otherwise it shows as
+waiting, a quiet session too, and so does an unplugged cable: with the internal pull-ups, an empty port reads like an idle one. Off
+or unplugged shows only when both lines are held low, as a half-inserted
+plug does.
+
 Tried on a Cardputer: the pages show on its screen and the calculator
 connects through the Grove cable.
 
