@@ -43,6 +43,11 @@ uint32_t lastDraw, lastKeys, lastRate, lastBattery, lastByteAt;
 uint32_t ratedTo, ratedFrom, toPerSecond, fromPerSecond, seenBytes;
 int battery = -1;
 
+// The G0 button steps the backlight through these, then back to off.
+const uint8_t BRIGHTNESS[] = {0, 64, 128, 191, 255};  // 0 to 100% in quarters
+const int BRIGHTNESS_STEPS = sizeof(BRIGHTNESS);
+int brightness = 1;  // 25%
+
 void add(uint8_t size, uint16_t colour, const char *format, ...) {
   if (lineCount == MAX_LINES) return;
   Line &line = lines[lineCount++];
@@ -148,6 +153,10 @@ void nextPage(int to) {
 
 void readKeys() {
   M5Cardputer.update();
+  if (M5Cardputer.BtnA.wasPressed()) {
+    brightness = (brightness + 1) % BRIGHTNESS_STEPS;
+    M5Cardputer.Display.setBrightness(BRIGHTNESS[brightness]);
+  }
   if (!M5Cardputer.Keyboard.isChange() || !M5Cardputer.Keyboard.isPressed()) return;
   Keyboard_Class::KeysState state = M5Cardputer.Keyboard.keysState();
   for (char c : state.word) {
@@ -170,7 +179,7 @@ void begin() {
   cfg.internal_spk = false;
   M5Cardputer.begin(cfg, true);
   M5Cardputer.Display.setRotation(1);
-  M5Cardputer.Display.setBrightness(80);
+  M5Cardputer.Display.setBrightness(BRIGHTNESS[brightness]);
   canvas.setColorDepth(8);
   canvas.createSprite(M5Cardputer.Display.width(), M5Cardputer.Display.height());
   canvas.setFont(&fonts::Font0);

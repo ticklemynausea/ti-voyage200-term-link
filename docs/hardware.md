@@ -80,7 +80,9 @@ If the upload cannot connect, hold G0 while pressing reset and try again.
 
 The Cardputer's screen shows what the bridge is doing, on three pages. Any
 key on its keyboard goes to the next page; `1`, `2` and `3` jump to one.
-Nothing typed there is sent to the shell.
+Nothing typed there is sent to the shell. The G0 button steps the
+backlight through 25, 50, 75 and 100% and then off, back to 25% on the
+next press; it starts at 25% at power-up.
 
 | Page | Shows |
 |---|---|
