@@ -8,16 +8,21 @@
  * The calculator picks the backend from its menu, with 0x1E and a letter:
  *   's'  Serial: the USB serial port, described below
  *   'h'  SSH: a shell on the selected host, over Wi-Fi (see Ssh.h)
- *   'n'  Wi-Fi settings: asks on the calculator for the network and its
- *        password, and stores them in the ESP32's flash (Preferences)
+ *   'n'  Wi-Fi settings: asks on the calculator for a network and its
+ *        password, and stores them in the ESP32's flash (Preferences). Up
+ *        to 4 networks are kept; the one joined last is joined again.
  *   'k'  SSH settings: the selected host and its user, stored likewise
  *   'g'  SSH key: makes the ESP32's own key pair, or removes it
  *   'i'  copies the public key to the selected host, after asking
+ *   'j'  joins the selected Wi-Fi network, which is then the one in use
  *   '1' to '8'  selects one of the stored hosts for the 'h', 'k' or 'i'
- *        that follows, and does nothing else
+ *        that follows, or one of the networks for 'j', and does nothing else
  *   'l'  asks for the list of hosts, for the calculator's host menu. The
  *        answer is 0x1E 'l' and one line for each of the 8 hosts, user@host
  *        or empty, each ended by a newline. It leaves the backend alone.
+ *   'm'  asks for the list of Wi-Fi networks, for the calculator's Wi-Fi
+ *        menu. The answer is 0x1E 'm' and one line for each of the 4
+ *        networks, in the same way.
  *   'x'  the session is over
  *   'w'  asks for the Wi-Fi status, for the menu's status bar. The answer is
  *        0x1E 'w', a line of text and a newline. It leaves the backend alone.
@@ -108,7 +113,17 @@ uint8_t typedCount = 0;
 
 // Kept in flash under these names. The SSH password is never stored.
 const char PREFS_NAMESPACE[] = "tilink";
-Ssh::Target target;  // the Wi-Fi part only: the host comes from hosts[]
+Ssh::Target target;  // the Wi-Fi network in use only: the host comes from hosts[]
+
+// The Wi-Fi networks that may be joined, one for each of the calculator's
+// keys F1 to F4. The one joined last is the one joined again.
+const uint8_t MAX_NETWORKS = 4;
+struct WifiNetwork {
+  String name, password;
+  bool isSet() const { return name.length(); }
+};
+WifiNetwork networks[MAX_NETWORKS];
+uint8_t lastNetwork = 0;  // the one joined last, from 1; 0 for none yet
 
 // The SSH hosts, one for each of the calculator's keys F1 to F8.
 const uint8_t MAX_HOSTS = 8;
@@ -119,7 +134,7 @@ struct Host {
   bool isSet() const { return host.length() && user.length(); }
 };
 Host hosts[MAX_HOSTS];
-uint8_t slot = 1;  // the host the calculator selected, from 1
+uint8_t slot = 1;  // the host or network the calculator selected, from 1
 
 // A screenshot on its way in from the calculator: 240 x 128 pixels, one bit
 // each. While it arrives nothing is sent to the calculator.
@@ -156,7 +171,7 @@ void showStatus() {
   for (const Host &h : hosts) hostsSet += h.isSet();
   if (backend == BACKEND_SSH) s.sshTarget = hostLabel(slot);
   else if (hostsSet) s.sshTarget = String(hostsSet) + (hostsSet == 1 ? " SSH host" : " SSH hosts");
-  s.wifiName = target.wifiName;
+  s.wifiName = wifiLabel();
   s.wifiUp = WiFi.status() == WL_CONNECTED;
   s.rssi = s.wifiUp ? WiFi.RSSI() : 0;
   if (s.wifiUp) s.ip = WiFi.localIP().toString();
@@ -335,6 +350,93 @@ String hostLabel(uint8_t n) {
   return h.user + "@" + h.host + (h.port == 22 ? String() : ":" + String(h.port));
 }
 
+uint8_t networksSet() {
+  uint8_t count = 0;
+  for (const WifiNetwork &n : networks) count += n.isSet();
+  return count;
+}
+
+// Which of the stored networks has this name, from 0; -1 if none.
+int knownNetwork(const String &name) {
+  for (uint8_t i = 0; i < MAX_NETWORKS; i++) {
+    if (networks[i].isSet() && networks[i].name == name) return i;
+  }
+  return -1;
+}
+
+// The network for the status displays: the one in use, or what is stored.
+String wifiLabel() {
+  if (WiFi.status() == WL_CONNECTED) return WiFi.SSID();
+  uint8_t count = networksSet();
+  if (count > 1) return String(count) + " networks";
+  for (const WifiNetwork &n : networks) if (n.isSet()) return n.name;
+  return "";
+}
+
+// The stored networks in the order they are tried, as indexes from 0: the
+// one joined last, then the others as they are numbered. Returns how many.
+uint8_t networkOrder(uint8_t *order) {
+  uint8_t count = 0;
+  if (lastNetwork && networks[lastNetwork - 1].isSet()) order[count++] = lastNetwork - 1;
+  for (uint8_t i = 0; i < MAX_NETWORKS; i++) {
+    if (networks[i].isSet() && i + 1 != lastNetwork) order[count++] = i;
+  }
+  return count;
+}
+
+// Joins the stored network with this index, from 0, and remembers it as the
+// one to join from now on.
+bool tryNetwork(uint8_t index, Ssh::SayFn say) {
+  target.wifiName = networks[index].name;
+  target.wifiPassword = networks[index].password;
+  if (!Ssh::joinWifi(target, say)) return false;
+  if (lastNetwork != index + 1) {
+    lastNetwork = index + 1;
+    Preferences prefs;
+    prefs.begin(PREFS_NAMESPACE, false);
+    prefs.putUChar("wifilast", lastNetwork);
+    prefs.end();
+  }
+  return true;
+}
+
+// Makes sure a stored network is joined. One that is joined already is kept.
+// Otherwise the one joined last is tried first and then the others, leaving
+// out those a scan does not show; if it shows none of them, all are tried,
+// since one may be hidden.
+bool joinKnownWifi(Ssh::SayFn say) {
+  int joined = WiFi.status() == WL_CONNECTED ? knownNetwork(WiFi.SSID()) : -1;
+  if (joined >= 0) {
+    target.wifiName = networks[joined].name;
+    target.wifiPassword = networks[joined].password;
+    return true;
+  }
+
+  uint8_t order[MAX_NETWORKS];
+  uint8_t count = networkOrder(order);
+  bool seen[MAX_NETWORKS] = {};
+  bool anySeen = false;
+  if (count > 1) {  // an only network needs no looking for
+    say("Looking for a known Wi-Fi network...");
+    WiFi.disconnect();  // a join still being tried would make the scan fail
+    WiFi.mode(WIFI_STA);
+    int found = WiFi.scanNetworks();
+    for (int i = 0; i < found; i++) {
+      int known = knownNetwork(WiFi.SSID(i));
+      if (known >= 0) anySeen = seen[known] = true;
+    }
+    WiFi.scanDelete();
+  }
+
+  for (uint8_t i = 0; i < count; i++) {
+    if (anySeen && !seen[order[i]]) continue;
+    if (tryNetwork(order[i], say)) return true;
+    pumpFromCalc();
+    if (pendingCount) return false;  // the user left for the menu
+  }
+  return false;
+}
+
 // What Ssh needs to reach a host: the Wi-Fi settings and the host's own.
 Ssh::Target targetFor(uint8_t n) {
   Ssh::Target t = target;
@@ -348,8 +450,17 @@ Ssh::Target targetFor(uint8_t n) {
 void loadSettings() {
   Preferences prefs;
   prefs.begin(PREFS_NAMESPACE, true);
-  target.wifiName = prefs.getString("wifiname", "");
-  target.wifiPassword = prefs.getString("wifipass", "");
+  for (uint8_t i = 0; i < MAX_NETWORKS; i++) {
+    String n(i + 1);
+    networks[i].name = prefs.getString(("wifiname" + n).c_str(), "");
+    networks[i].password = prefs.getString(("wifipass" + n).c_str(), "");
+  }
+  lastNetwork = prefs.getUChar("wifilast", 0);
+  // Before there were several networks the only one was stored without a number.
+  if (!prefs.isKey("wifiname1") && prefs.isKey("wifiname")) {
+    networks[0].name = prefs.getString("wifiname", "");
+    networks[0].password = prefs.getString("wifipass", "");
+  }
   for (uint8_t i = 0; i < MAX_HOSTS; i++) {
     String n(i + 1);
     hosts[i].host = prefs.getString(("host" + n).c_str(), "");
@@ -368,15 +479,20 @@ void loadSettings() {
 void saveSettings() {
   Preferences prefs;
   prefs.begin(PREFS_NAMESPACE, false);
-  prefs.putString("wifiname", target.wifiName);
-  prefs.putString("wifipass", target.wifiPassword);
+  for (uint8_t i = 0; i < MAX_NETWORKS; i++) {
+    String n(i + 1);
+    prefs.putString(("wifiname" + n).c_str(), networks[i].name);
+    prefs.putString(("wifipass" + n).c_str(), networks[i].password);
+  }
+  prefs.remove("wifiname");  // the names from before there were several networks
+  prefs.remove("wifipass");
   for (uint8_t i = 0; i < MAX_HOSTS; i++) {
     String n(i + 1);
     prefs.putString(("host" + n).c_str(), hosts[i].host);
     prefs.putUShort(("port" + n).c_str(), hosts[i].port);
     prefs.putString(("user" + n).c_str(), hosts[i].user);
   }
-  prefs.remove("host");  // the names from before there were several hosts
+  prefs.remove("host");  // and from before there were several hosts
   prefs.remove("port");
   prefs.remove("user");
   prefs.end();
@@ -384,7 +500,7 @@ void saveSettings() {
 
 // SSH to the selected host can be tried.
 bool sshReady() {
-  return target.wifiName.length() && hosts[slot - 1].isSet();
+  return networksSet() && hosts[slot - 1].isSet();
 }
 
 // Asks for one setting, showing the current value; an empty answer keeps it.
@@ -399,12 +515,54 @@ bool askSetting(const char *name, String &value, bool hidden) {
 
 const char BACK_HINT[] = "[2nd+ESC for the menu]";
 
+// Joins the network picked in the calculator's Wi-Fi menu.
+void joinSelectedWifi() {
+  if (slot > MAX_NETWORKS || !networks[slot - 1].isSet()) {
+    sayToCalc("That network is not set: Settings, then Wi-Fi (F1).");
+  } else if (tryNetwork(slot - 1, sayToCalc)) {
+    sayToCalc(("On " + networks[slot - 1].name + ". It is the network used from now on.").c_str());
+  }
+  sayToCalc(BACK_HINT);
+}
+
 // The settings dialogs, run on the calculator's screen. Nothing is stored
 // unless every question of a dialog was answered.
 void editWifi() {
-  Ssh::Target edited = target;
+  sayToCalc("Wi-Fi networks. The menu's Wi-Fi entry picks the one to join.");
+  for (uint8_t i = 0; i < MAX_NETWORKS; i++) {
+    sayToCalc((String(" ") + (i + 1) + "  " + (networks[i].isSet() ? networks[i].name : String("-"))).c_str());
+  }
+  String choice;
+  String prompt = String("Set, change or remove which, 1 to ") + MAX_NETWORKS + " (ENTER: none): ";
+  if (!askOnCalc(prompt.c_str(), false, choice)) return;
+  if (choice.length() != 1 || choice[0] < '1' || choice[0] >= '1' + MAX_NETWORKS) {
+    sayToCalc("Nothing was changed.");
+    sayToCalc(BACK_HINT);
+    return;
+  }
+  uint8_t index = choice[0] - '1';
+  WifiNetwork &current = networks[index];
 
-  sayToCalc("Wi-Fi. ENTER keeps the value in brackets.");
+  if (current.isSet()) {
+    sayToCalc(("  " + current.name).c_str());
+    sayToCalc(" 1  change it");
+    sayToCalc(" 2  remove it");
+    if (!askOnCalc("1, 2, or ENTER to leave it: ", false, choice)) return;
+    if (choice == "2") {
+      current = WifiNetwork();
+      saveSettings();
+      sayToCalc("Removed.");
+    } else if (choice != "1") {
+      sayToCalc("The network was left as it is.");
+    }
+    if (choice != "1") {
+      sayToCalc(BACK_HINT);
+      return;
+    }
+  }
+
+  WifiNetwork edited = current;
+  sayToCalc("ENTER keeps the value in brackets.");
   sayToCalc("Looking for networks...");
   WiFi.mode(WIFI_STA);
   int found = WiFi.scanNetworks();
@@ -416,19 +574,26 @@ void editWifi() {
   if (found <= 0) sayToCalc(" none found; the name can still be typed");
 
   String network;
-  if (!askOnCalc(("Network, number or name [" + edited.wifiName + "]: ").c_str(), false, network)) return;
+  if (!askOnCalc(("Network, number or name [" + edited.name + "]: ").c_str(), false, network)) return;
   if (network.length() == 1 && network[0] >= '1' && network[0] < '1' + found) {
     network = WiFi.SSID(network[0] - '1');
   }
   WiFi.scanDelete();
-  if (network.length()) edited.wifiName = network;
+  if (network.length() && network != edited.name) {
+    edited.name = network;
+    edited.password = "";  // the old network's password is of no use here
+  }
 
-  if (!askSetting("Password", edited.wifiPassword, true)) return;
+  if (!askSetting("Password", edited.password, true)) return;
 
-  target = edited;
-  saveSettings();
-  sayToCalc("Saved. Testing:");
-  Ssh::joinWifi(target, sayToCalc);
+  if (!edited.isSet()) {
+    sayToCalc("A network name is needed. Nothing was saved.");
+  } else {
+    current = edited;
+    saveSettings();
+    sayToCalc("Saved. Testing:");
+    tryNetwork(index, sayToCalc);
+  }
   sayToCalc(BACK_HINT);
 }
 
@@ -534,7 +699,7 @@ void editSshKey() {
 // Puts the public key on the selected host, only after the user has read
 // what that means and typed yes.
 void copySshKey() {
-  Ssh::Target to = targetFor(slot);
+  const Host &to = hosts[slot - 1];
   sayToCalc("Copy the key to the host");
   if (!Ssh::hasKey()) {
     sayToCalc("This ESP32 has no key yet: Settings, F3 makes one.");
@@ -548,7 +713,9 @@ void copySshKey() {
     sayToCalc("without a password.");
     if (!confirmedOnCalc("Go ahead? Type yes: ")) {
       if (!pendingCount) sayToCalc("Nothing was copied.");
-    } else if (Ssh::copyKeyToHost(to, sayToCalc, askOnCalc)) {
+    } else if (!joinKnownWifi(sayToCalc)) {
+      if (!pendingCount) sayToCalc("None of the Wi-Fi networks in Settings could be joined.");
+    } else if (Ssh::copyKeyToHost(targetFor(slot), sayToCalc, askOnCalc)) {
       Display::log("SSH key copied to the host");
       sayToCalc("Copied. SSH to this host now logs in with the key.");
     } else if (!pendingCount) {
@@ -564,6 +731,7 @@ void runCalcCommand(char command) {
 
   Display::log(command == 's' ? "calculator: Serial" : command == 'h' ? "calculator: SSH"
                : command == 'n' ? "calculator: Wi-Fi settings"
+               : command == 'j' ? "calculator: join a Wi-Fi network"
                : command == 'k' ? "calculator: SSH settings"
                : command == 'g' ? "calculator: SSH key"
                : command == 'i' ? "calculator: copy the SSH key" : "calculator: menu");
@@ -574,12 +742,19 @@ void runCalcCommand(char command) {
       sayToCalc("SSH is not set up yet: choose Settings in the menu,");
       sayToCalc("then Wi-Fi (F1) and SSH hosts (F2).");
       sayToCalc(BACK_HINT);
+    } else if (!joinKnownWifi(sayToCalc)) {
+      if (!pendingCount) {
+        sayToCalc("None of the Wi-Fi networks in Settings could be joined.");
+        sayToCalc(BACK_HINT);
+      }
     } else if (Ssh::open(targetFor(slot), sayToCalc, askOnCalc)) {
       backend = BACKEND_SSH;
       Display::log("SSH session open");
     } else if (!pendingCount) {
       sayToCalc(BACK_HINT);
     }
+  } else if (command == 'j') {
+    joinSelectedWifi();
   } else if (command == 'n') {
     editWifi();
   } else if (command == 'k') {
@@ -594,12 +769,12 @@ void runCalcCommand(char command) {
 // One line for the calculator menu's status bar.
 void sendWifiStatus() {
   String status;
-  if (!target.wifiName.length()) {
-    status = "Wi-Fi: not set up (F3, then F1)";
+  if (!networksSet()) {
+    status = "Wi-Fi: not set up (F4, then F1)";
   } else if (WiFi.status() == WL_CONNECTED) {
     status = "Wi-Fi: " + WiFi.SSID() + "  " + WiFi.RSSI() + " dBm  " + WiFi.localIP().toString();
   } else {
-    status = "Wi-Fi: " + target.wifiName + ", not connected";
+    status = "Wi-Fi: " + wifiLabel() + ", not connected";
   }
   sendToCalc(CONTROL_MARK);
   sendToCalc('w');
@@ -617,6 +792,21 @@ void sendHostList() {
   }
 }
 
+// The networks, for the calculator's Wi-Fi menu, in the same way.
+void sendNetworkList() {
+  bool up = WiFi.status() == WL_CONNECTED;
+  sendToCalc(CONTROL_MARK);
+  sendToCalc('m');
+  for (uint8_t i = 0; i < MAX_NETWORKS; i++) {
+    String label = networks[i].name;
+    if (!networks[i].isSet()) label = "";
+    else if (up && WiFi.SSID() == label) label += String("  (joined, ") + WiFi.RSSI() + " dBm)";
+    else if (i + 1 == lastNetwork) label += "  (used last)";
+    sendText(label.c_str());
+    sendToCalc('\n');
+  }
+}
+
 void runPendingCommands() {
   while (pendingCount) {
     char command = pendingCommands[0];
@@ -624,6 +814,7 @@ void runPendingCommands() {
     memmove(pendingCommands, pendingCommands + 1, pendingCount);
     if (command == 'w') sendWifiStatus();
     else if (command == 'l') sendHostList();
+    else if (command == 'm') sendNetworkList();
     else if (command >= '1' && command < '1' + MAX_HOSTS) slot = command - '0';
     else runCalcCommand(command);
   }
@@ -682,8 +873,11 @@ void handleLine(const String &text) {
     long bytes = text.substring(6).toInt();
     burst(bytes > 0 ? bytes : 2000);
   } else if (text == "/settings") {
-    Serial.printf("Wi-Fi network \"%s\" (password %s)\n", target.wifiName.c_str(),
-                  target.wifiPassword.length() ? "set" : "not set");
+    for (uint8_t i = 0; i < MAX_NETWORKS; i++) {
+      if (!networks[i].isSet()) continue;
+      Serial.printf("Wi-Fi network %u: \"%s\" (password %s)\n", i + 1, networks[i].name.c_str(),
+                    networks[i].password.length() ? "set" : "not set");
+    }
     for (uint8_t n = 1; n <= MAX_HOSTS; n++) {
       if (hosts[n - 1].isSet()) Serial.printf("SSH host %u: %s\n", n, hostLabel(n).c_str());
     }
@@ -719,8 +913,12 @@ void setup() {
   Display::begin();  // before the link: the screen's library sets up pins of its own
   ti.begin();
   loadSettings();
-  // Join the stored network in the background, so it is up before it is needed.
-  if (target.wifiName.length()) {
+  // Join the network used last in the background, so it is up before it is
+  // needed.
+  uint8_t order[MAX_NETWORKS];
+  if (networkOrder(order)) {
+    target.wifiName = networks[order[0]].name;
+    target.wifiPassword = networks[order[0]].password;
     WiFi.mode(WIFI_STA);
     WiFi.begin(target.wifiName.c_str(), target.wifiPassword.c_str());
   }

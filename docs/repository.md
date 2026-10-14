@@ -17,7 +17,7 @@ calc/                                C programs for the calculator (TIGCC / GCC4
   term/                              a 60x21 terminal on the link port, with a menu
     term.c                             screen, VT220 subset, keyboard
     font.txt, mkfont.py                the 3x5 font, drawn as text; its converter and character table
-    help.txt, mkhelp.py                the help pages shown by F5, as text, and their converter
+    help.txt, mkhelp.py                the help pages shown by F6, as text, and their converter
 shell/                               what runs on the computer for a session
   shell.py                           joins a shell on the computer to the ESP32's port; saves screenshots
   tmux_calc.conf                     tmux settings for the calculator's screen

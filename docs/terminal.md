@@ -39,16 +39,17 @@ Move the calculator to the ESP32's pigtail and run `term()`. The menu:
 |---|---|
 | F1 | Serial: the shell that `make shell` runs on the computer |
 | F2 | SSH: a shell on one of the hosts in the settings, over Wi-Fi |
-| F3 | Settings: a menu of its own, below |
-| F4 | Debug: a menu of its own, below |
-| F5 | Help: the keys and the menu, from `calc/term/help.txt` |
+| F3 | Wi-Fi: picks which of the stored networks to use |
+| F4 | Settings: a menu of its own, below |
+| F5 | Debug: a menu of its own, below |
+| F6 | Help: the keys and the menu, from `calc/term/help.txt` |
 | ESC | Exit |
 
 Settings:
 
 | Key | Entry |
 |---|---|
-| F1 | Wi-Fi: the network and its password |
+| F1 | Wi-Fi: sets, changes or removes one of the networks |
 | F2 | SSH hosts: sets, changes or removes one of the hosts |
 | F3 | SSH key: makes the ESP32's own key, replaces it or removes it |
 | F4 | Copy the key: puts the public key on one of the hosts, after asking |
@@ -83,8 +84,8 @@ ESC in any of them goes one menu back.
 
 The menu's bottom row shows the Wi-Fi status, asked from the ESP32 every
 three seconds: the network, signal strength and address, or that it is not
-connected or not set up. The ESP32 joins the stored network when it powers
-up.
+connected or not set up. When it powers up, the ESP32 joins the network it
+used last.
 
 `make shell` can be started before or after choosing Serial: its output
 waits until the calculator is in that session. Close the Serial Monitor
@@ -96,15 +97,29 @@ the calculator's. Ctrl-C then goes to the shell like any other key, so
 Ctrl-] is what stops it. Without `MIRROR`, the window shows nothing, sends
 nothing, and Ctrl-C stops it.
 
-For SSH, go through Settings first. Wi-Fi lists the networks the ESP32
-sees and asks for the network (by number or name) and its password. SSH
+For SSH, go through Settings first. Wi-Fi shows the stored networks, up
+to four, and asks which one to set, change or remove. For a new or changed
+one it lists the networks the ESP32 sees and asks for the network (by
+number or name) and its password.
+
+The ESP32 uses the network it joined last. Wi-Fi in the main menu shows
+the stored networks, with the one that is joined or was used last marked,
+and an F key joins that one, which then is the one used from now on,
+across power cycles too. Before an SSH connection the ESP32 stays on a
+stored network it has already joined. If it is on none, it tries the one
+used last and then the others in their order, leaving out those a scan
+does not show; if the scan shows none of them it tries them all, since one
+may be hidden. A network joined that way becomes the one used last.
+
+SSH
 hosts, then an F key, asks for that host (`host` or `host:port`) and its
 user; on a host that is already set it first offers to change or remove
 it. They are stored in the ESP32's flash (the Preferences library), so they survive
-power cycles and reflashing, and the Wi-Fi password is readable there by
+power cycles and reflashing this sketch; another firmware put on the board
+may erase them. The Wi-Fi passwords are readable there by
 anyone holding the board. `/settings` in the Serial Monitor shows what is
-stored, without the password. An ESP32 that had a single host from before
-keeps it, as the first one.
+stored, without the passwords. An ESP32 that had a single network or a
+single host from before keeps it, as the first one.
 
 **Logging in.** Without a key, the SSH password is asked for at every
 connection and never stored. To skip it, the ESP32 can have a key of its
@@ -147,7 +162,7 @@ sent twice.
 | Bytes | Meaning |
 |---|---|
 | `1E 's'` | a Serial session starts |
-| `1E '1'` to `1E '8'` | selects one of the SSH hosts for the `h`, `k` or `i` that follows |
+| `1E '1'` to `1E '8'` | selects one of the SSH hosts for the `h`, `k` or `i` that follows, or one of the Wi-Fi networks for `j` |
 | `1E 'h'` | an SSH session with the selected host starts |
 | `1E 'n'` | the Wi-Fi settings dialog starts |
 | `1E 'k'` | the dialog for the selected host and its user starts |
@@ -156,12 +171,16 @@ sent twice.
 | `1E 'x'` | the session is over |
 | `1E 'w'` | what is the Wi-Fi status? |
 | `1E 'l'` | which are the SSH hosts? |
+| `1E 'm'` | which are the Wi-Fi networks? |
+| `1E 'j'` | the selected Wi-Fi network is joined and used from now on |
 | `1E 'p'` | a screenshot: the 3840 bytes of the screen follow, as they are |
 
-**ESP32 to calculator.** Plain terminal output, except two answers. To the
+**ESP32 to calculator.** Plain terminal output, except three answers. To the
 status question: `1E 'w'`, a line of text, a newline. To the hosts
 question: `1E 'l'`, then eight lines, each `user@host` (with `:port` if it
-is not 22) or empty, each ended by a newline.
+is not 22) or empty, each ended by a newline. To the networks question:
+`1E 'm'`, then four lines in the same way, each a network's name, with a
+note if it is joined or was used last.
 
 **Computer to ESP32** (`shell/shell.py`). Three `0x1E` bytes, a word and a
 newline switch the sketch's serial mode: `raw` or `monitor`. In raw mode

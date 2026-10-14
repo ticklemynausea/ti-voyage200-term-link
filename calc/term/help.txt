@@ -1,4 +1,4 @@
-# The help shown by F5 in the terminal's menu. Plain ASCII, at most 60
+# The help shown by F6 in the terminal's menu. Plain ASCII, at most 60
 # columns and 20 lines a page. A line of dashes starts a new page. Lines
 # starting with # are left out.
 KEYS IN A SESSION
@@ -29,11 +29,12 @@ F1 Serial      a shell on the computer, over USB.
 F2 SSH         over the ESP32's Wi-Fi, to one of up to 8
                hosts: F1 to F8 picks it. Logs in with the
                ESP32's key, or asks for the password.
-F3 Settings    F1 Wi-Fi network and password
+F3 Wi-Fi       F1 to F4 picks the network to use.
+F4 Settings    F1 Wi-Fi: up to 4 networks
                F2 SSH hosts: F1 to F8 picks the one to set
                F3 SSH key: makes one, kept in the ESP32
                F4 copies the key to a host, after asking
-F4 Debug       local echo, test pattern, key codes.
+F5 Debug       local echo, test pattern, key codes.
 
 The menu's bottom row shows the Wi-Fi state.
 

@@ -55,8 +55,8 @@ make calc:term:send             # build term.v2z and send it (SilverLink cable)
 make shell                      # optional: a shell on this computer for the Serial entry
 ```
 
-Run `term()` on the calculator. F3 opens the settings: the Wi-Fi network,
-up to eight SSH hosts, and a key for logging in without a password. F2
+Run `term()` on the calculator. F4 opens the settings: up to four Wi-Fi
+networks, up to eight SSH hosts, and a key for logging in without a password. F2
 connects over SSH to the host picked there, F1 uses the shell from `make shell`. The keys, the settings and what
 was learned on the way are in [terminal.md](terminal.md).
 
