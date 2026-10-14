@@ -84,11 +84,18 @@ ESC in any of them goes one menu back.
 
 The menu's bottom row shows the Wi-Fi status, asked from the ESP32 every
 three seconds: the network, signal strength and address, or that it is not
-connected or not set up. The settings and debug menus show it too. While
-Wi-Fi is not connected, the entries that need it (SSH, and Copy the key in
-Settings) have a checkered key and do not open; Wi-Fi in the main menu
-joins a network. When it powers up, the ESP32 joins the network it used
-last.
+connected or not set up. The settings and debug menus show it too. An
+entry that cannot be used has a checkered key and does not open:
+
+- until the ESP32 answers ("asking the ESP32") or after it stops answering
+  ("ESP32: no answer"), everything that goes through it: Serial, SSH,
+  Wi-Fi and Settings in the main menu, all of the settings menu, and the
+  keys of the host and network lists until the list has arrived;
+- while Wi-Fi is not connected, the entries that need it: SSH, and Copy
+  the key in Settings. Wi-Fi in the main menu joins a network.
+
+Debug and Help always open. When it powers up, the ESP32 joins the network
+it used last.
 
 `make shell` can be started before or after choosing Serial: its output
 waits until the calculator is in that session. Close the Serial Monitor
