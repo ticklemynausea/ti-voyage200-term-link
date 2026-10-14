@@ -25,7 +25,8 @@
  *        networks, in the same way.
  *   'x'  the session is over
  *   'w'  asks for the Wi-Fi status, for the menu's status bar. The answer is
- *        0x1E 'w', a line of text and a newline. It leaves the backend alone.
+ *        0x1E 'w', '+' or '-' for Wi-Fi up or down, a line of text and a
+ *        newline. It leaves the backend alone.
  *   'p'  a screenshot: the 3840 bytes of the calculator's screen follow, as
  *        they are. It leaves the backend alone too. With a computer attached
  *        (paced raw mode, below) they are passed on as 0x1E 'p' and the bytes.
@@ -769,18 +770,21 @@ void runCalcCommand(char command) {
   }
 }
 
-// One line for the calculator menu's status bar.
+// One line for the calculator menu's status bar, after '+' or '-' for Wi-Fi
+// up or down: the menu entries that need Wi-Fi go by it.
 void sendWifiStatus() {
+  bool up = WiFi.status() == WL_CONNECTED;
   String status;
   if (!networksSet()) {
     status = "Wi-Fi: not set up (F4, then F1)";
-  } else if (WiFi.status() == WL_CONNECTED) {
+  } else if (up) {
     status = "Wi-Fi: " + WiFi.SSID() + "  " + WiFi.RSSI() + " dBm  " + WiFi.localIP().toString();
   } else {
     status = "Wi-Fi: " + wifiLabel() + ", not connected";
   }
   sendToCalc(CONTROL_MARK);
   sendToCalc('w');
+  sendToCalc(up ? '+' : '-');
   sendText(status.substring(0, 60).c_str());
   sendToCalc('\n');
 }

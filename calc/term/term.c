@@ -50,6 +50,8 @@ static unsigned char *cellAddr(short col, short row)
   return lcd + row * (CELL_H * LCD_ROW_BYTES) + (col >> 1);
 }
 
+#define CHECKERED 2  // for drawCell: reverse video on a checkered background
+
 static void drawCell(short col, short row, unsigned char ch, short rev)
 {
   const unsigned char *glyph = font[(ch < 32 || ch >= 32 + GLYPHS) ? GLYPH_UNKNOWN - 32 : ch - 32];
@@ -61,6 +63,7 @@ static void drawCell(short col, short row, unsigned char ch, short rev)
   for (y = 0; y < CELL_H; y++, p += LCD_ROW_BYTES) {
     unsigned char bits = glyph[y];
     if (rev) bits ^= 0xF;
+    if (rev == CHECKERED) bits &= (y & 1) ? 0x5 : 0xA;
     *p = (*p & ~mask) | (bits << shift);
   }
 }
@@ -821,19 +824,98 @@ static void putRight(short row, const char *text)
   termPuts(text);
 }
 
-// A menu under the main one. Returns the entry chosen, from 1, or 0 for ESC.
-static short submenu(const char *text, short entries)
-{
-  unsigned short key;
+static short wifiUp;  // as the ESP32 last said, kept from one menu to the next
 
+#define MENU_FIRST_ROW 2  // of F1's key, counted from 0; the next is two rows down
+#define MENU_KEY_COL 2
+
+// Draws the keys of the entries in needWifi (bit 0 for F1) checkered while
+// Wi-Fi is down, and in plain reverse video once it is up.
+static void shadeKeys(short entries, short needWifi)
+{
+  char label[5];
+  short i, k;
+
+  for (i = 0; i < entries; i++) {
+    if (!(needWifi & (1 << i))) continue;
+    sprintf(label, " F%d ", i + 1);
+    for (k = 0; k < 4; k++)
+      drawCell(MENU_KEY_COL + k, MENU_FIRST_ROW + 2 * i, label[k], wifiUp ? 1 : CHECKERED);
+  }
+}
+
+// Waits for one of a menu's entries, F1 and on, while the bottom row shows
+// the ESP32's Wi-Fi status. Its answer is LINK_MARK 'w', '+' or '-' for
+// Wi-Fi up or down, the text and a newline. The entries in needWifi cannot
+// be chosen while Wi-Fi is down. Returns the entry, from 1, or 0 for ESC.
+static short menuChoice(short entries, short needWifi)
+{
+  static const char NO_WIFI[] = "Wi-Fi is not connected: the main menu's F3 joins a network";
+  char buf[64];
+  char status[COLS];
+  unsigned short key;
+  short choice = -1;
+  short step = 0;        // 0 other bytes, 1 after LINK_MARK, 2 the up or down, 3 the text
+  short statusLen = 0;
+  short unanswered = 0;
+  short n, i;
+
+  shadeKeys(entries, needWifi);
+  drawStatus("Wi-Fi: asking the ESP32...", 26);
+  linkCommand('w');
+  OSRegisterTimer(USER_TIMER, STATUS_TICKS);
+
+  while (choice < 0) {
+    // Outside a session only the Wi-Fi status is expected; the rest is dropped.
+    n = OSReadLinkBlock(buf, sizeof(buf));
+    for (i = 0; i < n; i++) {
+      char c = buf[i];
+      if (step == 0) {
+        if (c == LINK_MARK) step = 1;
+      } else if (step == 1) {
+        step = (c == 'w') ? 2 : 0;
+        statusLen = 0;
+      } else if (step == 2) {
+        if (wifiUp != (c == '+')) {
+          wifiUp = (c == '+');
+          shadeKeys(entries, needWifi);
+        }
+        step = 3;
+      } else if (c == '\n') {
+        drawStatus(status, statusLen);
+        unanswered = 0;
+        step = 0;
+      } else if (statusLen < COLS) {
+        status[statusLen++] = c;
+      }
+    }
+
+    if (!OSdequeue(&key, keyQueue)) {
+      if (key == KEY_SCREENSHOT) sendScreen();
+      if (key == KEY_ESC || isQuitKey(key)) choice = 0;
+      if (key >= KEY_F1 && key < (unsigned short)(KEY_F1 + entries)) {
+        if (!wifiUp && (needWifi & (1 << (key - KEY_F1)))) drawStatus(NO_WIFI, sizeof(NO_WIFI) - 1);
+        else choice = key - KEY_F1 + 1;
+      }
+    } else if (OSTimerExpired(USER_TIMER)) {
+      if (++unanswered > 2) drawStatus("ESP32: no answer", 16);
+      linkCommand('w');
+      OSTimerRestart(USER_TIMER);
+    } else if (n == 0) {
+      idle();
+    }
+  }
+  OSFreeTimer(USER_TIMER);
+  return choice;
+}
+
+// A menu under the main one. Returns the entry chosen, from 1, or 0 for ESC.
+static short submenu(const char *text, short entries, short needWifi)
+{
   termPuts("\x1B" "c");
   termPuts(text);
   termPuts("  \x1B[7m ESC \x1B[0m Back");
-  for (;;) {
-    key = waitKey();
-    if (key == KEY_ESC || isQuitKey(key)) return 0;
-    if (key >= KEY_F1 && key < (unsigned short)(KEY_F1 + entries)) return key - KEY_F1 + 1;
-  }
+  return menuChoice(entries, needWifi);
 }
 
 #define HOST_FIRST_ROW 3  // of F1's entry, counted from 1; the next is two rows down
@@ -932,7 +1014,7 @@ static void settingsMenu(void)
       "  \x1B[7m F2 \x1B[0m  SSH hosts     up to 8, each a host and a user\r\n\r\n"
       "  \x1B[7m F3 \x1B[0m  SSH key       make this ESP32's key, or remove it\r\n\r\n"
       "  \x1B[7m F4 \x1B[0m  Copy the key  to a host, for SSH without password\r\n\r\n",
-      4);
+      4, 1 << 3);
     if (!choice) return;
     if (choice == 2) {
       while ((hostSlot = hostMenu("SSH hosts", " F1 to F8: set, change or remove that host", 1)))
@@ -954,7 +1036,7 @@ static void debugMenu(void)
       "  \x1B[7m F1 \x1B[0m  Local echo    nothing leaves the calculator\r\n\r\n"
       "  \x1B[7m F2 \x1B[0m  Test pattern\r\n\r\n"
       "  \x1B[7m F3 \x1B[0m  Key codes\r\n\r\n",
-      3)) {
+      3, 0)) {
       case 1: session(MODE_LOCAL); break;
       case 2: testPattern(); break;
       case 3: session(MODE_KEY_CODES); break;
@@ -966,15 +1048,6 @@ static void debugMenu(void)
 // Returns 0 when the choice is to leave the program.
 static short menu(void)
 {
-  char buf[64];
-  char status[COLS];
-  unsigned short key;
-  short choice = 0;
-  short step = 0;        // where in "LINK_MARK w text newline" the input is
-  short statusLen = 0;
-  short unanswered = 0;
-  short n, i;
-
   termPuts("\x1B" "c");
   termPuts("Voyage 200 terminal, built " __DATE__ " " __TIME__ "\r\n\r\n");
   termPuts("  \x1B[7m F1 \x1B[0m  Serial        a shell on the computer, over USB\r\n\r\n");
@@ -989,57 +1062,20 @@ static short menu(void)
   putRight(18, "@ticklemynausea");
   putRight(19, "mariocarneiro.info");
 
-  drawStatus("Wi-Fi: asking the ESP32...", 26);
-  linkCommand('w');
-  OSRegisterTimer(USER_TIMER, STATUS_TICKS);
-
-  while (!choice) {
-    // Outside a session only the Wi-Fi status is expected; the rest is dropped.
-    n = OSReadLinkBlock(buf, sizeof(buf));
-    for (i = 0; i < n; i++) {
-      char c = buf[i];
-      if (step == 0) {
-        if (c == LINK_MARK) step = 1;
-      } else if (step == 1) {
-        step = (c == 'w') ? 2 : 0;
-        statusLen = 0;
-      } else if (c == '\n') {
-        drawStatus(status, statusLen);
-        unanswered = 0;
-        step = 0;
-      } else if (statusLen < COLS) {
-        status[statusLen++] = c;
-      }
-    }
-
-    if (!OSdequeue(&key, keyQueue)) {
-      if (key == KEY_SCREENSHOT) sendScreen();
-      if (isQuitKey(key)) key = KEY_ESC;
-      if ((key >= KEY_F1 && key <= KEY_F6) || key == KEY_ESC) choice = key;
-    } else if (OSTimerExpired(USER_TIMER)) {
-      if (++unanswered > 2) drawStatus("ESP32: no answer", 16);
-      linkCommand('w');
-      OSTimerRestart(USER_TIMER);
-    } else if (n == 0) {
-      idle();
-    }
-  }
-  OSFreeTimer(USER_TIMER);
-
-  switch (choice) {
-    case KEY_F1: session(MODE_SERIAL); break;
-    case KEY_F2:
+  switch (menuChoice(6, 1 << 1)) {  // SSH needs Wi-Fi
+    case 1: session(MODE_SERIAL); break;
+    case 2:
       hostSlot = hostMenu("SSH", " F1 to F8: connect to that host", 0);
       if (hostSlot) session(MODE_SSH);
       break;
-    case KEY_F3:
+    case 3:
       while ((hostSlot = listMenu("Wi-Fi", " F1 to F4: use that network", 0, MAX_NETWORKS, 'm')))
         session(MODE_WIFI_JOIN);
       break;
-    case KEY_F4: settingsMenu(); break;
-    case KEY_F5: debugMenu(); break;
-    case KEY_F6: showHelp(); break;
-    case KEY_ESC: return 0;
+    case 4: settingsMenu(); break;
+    case 5: debugMenu(); break;
+    case 6: showHelp(); break;
+    default: return 0;
   }
   return 1;
 }
