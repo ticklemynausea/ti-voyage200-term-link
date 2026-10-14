@@ -726,7 +726,10 @@ void copySshKey() {
 }
 
 void runCalcCommand(char command) {
-  if (backend == BACKEND_SSH) Ssh::close();
+  if (backend == BACKEND_SSH) {
+    Ssh::close();
+    Display::log("SSH session closed");
+  }
   backend = BACKEND_NONE;
 
   Display::log(command == 's' ? "calculator: Serial" : command == 'h' ? "calculator: SSH"
