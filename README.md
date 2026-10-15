@@ -11,6 +11,10 @@ screen make the setup portable.
 
 ![A Voyage 200 running Claude Code, wired to an M5Stack Stamp S3 on a breadboard](docs/pics/stamp-s3-claude-code.png)
 
+| Demo 1 | Demo 2 |
+|---|---|
+| [![TI Voyage 200 Terminal Link (Demo 1), on YouTube](https://i.ytimg.com/vi/XhidNs_AlWg/hqdefault.jpg)](https://youtu.be/XhidNs_AlWg) | [![TI Voyage 200 Terminal Link (Demo 2), on YouTube](https://i.ytimg.com/vi/JBhirpvVk9g/hqdefault.jpg)](https://youtu.be/JBhirpvVk9g) |
+
 A 13 KB C program turns the calculator into a 60x21 VT220
 terminal. From its menu you open a shell on the computer the ESP32 is plugged
 into, or an SSH session to any host over Wi-Fi.
