@@ -39,8 +39,19 @@ CARDPUTER_FQBN ?= esp32:esp32:m5stack_cardputer
 # the partition table.
 CARDPUTER_TERM_FQBN ?= $(CARDPUTER_FQBN):FlashSize=8M,PartitionScheme=default_8MB
 
+# The commit the terminal sketch is built from, with a + if there were
+# changes not yet committed, and the time: $(call version_h,board) writes them
+# to a version.h in the build folder, which compile puts on the include path,
+# for the Cardputer's build page. The date is the Makefile's because the
+# compiler's own __DATE__ only changes when the file using it is rebuilt.
+VERSION := $(shell git describe --always --dirty=+ --exclude='*' 2>/dev/null || echo unknown)
+version_h = @mkdir -p build/$(1)-term && \
+	printf '\#define VERSION "%s"\n\#define BUILT "%s"\n' '$(VERSION)' "$$(date '+%b %e %Y %H:%M:%S')" \
+	> build/$(1)-term/version.h
+
 # $(call compile,fqbn,board,sketch) and the same with an upload.
-compile = arduino-cli compile --fqbn $(1) --output-dir build/$(2)-$(3) esp32/esp32_tilink_$(3)
+compile = arduino-cli compile --fqbn $(1) --output-dir build/$(2)-$(3) \
+	--build-property compiler.cpp.extra_flags=-I$(CURDIR)/build/$(2)-$(3) esp32/esp32_tilink_$(3)
 upload = $(call compile,$(1),$(2),$(3)) --upload -p $(PORT)
 need_port = @test -n "$(PORT)" || { echo "No ESP32 found on /dev/cu.usbmodem*. Plug it in or pass PORT=..."; exit 1; }
 sd_hint = @echo "For M5 Launcher: copy build/cardputer-$(1)/esp32_tilink_$(1).ino.bin to the SD card."
@@ -52,9 +63,11 @@ calc\:term\:send:
 	$(MAKE) -C calc/term send
 
 esp32_stamps3\:term\:build:
+	$(call version_h,stamps3)
 	$(call compile,$(STAMPS3_FQBN),stamps3,term)
 
 esp32_stamps3\:term\:flash:
+	$(call version_h,stamps3)
 	$(need_port)
 	$(call upload,$(STAMPS3_FQBN),stamps3,term)
 
@@ -66,10 +79,12 @@ esp32_stamps3\:linetest\:flash:
 	$(call upload,$(STAMPS3_FQBN),stamps3,linetest)
 
 esp32_cardputer\:term\:build:
+	$(call version_h,cardputer)
 	$(call compile,$(CARDPUTER_TERM_FQBN),cardputer,term)
 	$(call sd_hint,term)
 
 esp32_cardputer\:term\:flash:
+	$(call version_h,cardputer)
 	$(need_port)
 	$(call upload,$(CARDPUTER_TERM_FQBN),cardputer,term)
 

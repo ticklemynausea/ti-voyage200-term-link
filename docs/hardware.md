@@ -78,8 +78,8 @@ first ESP32 port they find.
 
 If the upload cannot connect, hold G0 while pressing reset and try again.
 
-The Cardputer's screen shows what the bridge is doing, on three pages. Any
-key on its keyboard goes to the next page; `1`, `2` and `3` jump to one.
+The Cardputer's screen shows what the bridge is doing, on four pages. Any
+key on its keyboard goes to the next page; `1` to `4` jump to one.
 Nothing typed there is sent to the shell. The G0 button steps the
 backlight through 25, 50, 75 and 100% and then off, back to 25% on the
 next press; it starts at 25% at power-up.
@@ -89,6 +89,7 @@ next press; it starts at 25% at power-up.
 | Status | the mode (menu, Serial or SSH), the SSH target or whether the computer is attached, the Wi-Fi network with signal and address, the calculator's presence, bytes per second each way |
 | Link | byte counts and rates each way, dropped bytes, resends, link errors, time since the last byte, uptime |
 | Log | the last events with the time since power-up: mode changes, Wi-Fi and SSH messages, the calculator or computer coming and going |
+| Build | when the sketch was built and from which commit, with a `+` if there were changes not yet committed |
 
 Every page has the battery level in its top bar.
 

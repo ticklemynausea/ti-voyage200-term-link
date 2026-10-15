@@ -3,6 +3,14 @@
 #include "Display.h"
 #include <M5Cardputer.h>
 
+// The Makefile writes it in the build folder; a build from elsewhere has none.
+#if __has_include("version.h")
+#include "version.h"
+#else
+#define VERSION "unknown"
+#define BUILT __DATE__ " " __TIME__
+#endif
+
 namespace Display {
 
 namespace {
@@ -12,8 +20,8 @@ const uint32_t KEYS_MS = 50;
 const uint32_t RATE_MS = 1000;
 const uint32_t BATTERY_MS = 5000;
 
-const int PAGES = 3;
-const char *const PAGE_NAMES[PAGES] = {"STATUS", "LINK", "LOG"};
+const int PAGES = 4;
+const char *const PAGE_NAMES[PAGES] = {"STATUS", "LINK", "LOG", "BUILD"};
 
 // The page is text: up to MAX_LINES lines, each in the small font (40
 // columns) or the same font doubled (20 columns). A page is only pushed to
@@ -131,6 +139,14 @@ void logPage() {
   }
 }
 
+void buildPage() {
+  add(1, TFT_LIGHTGREY, "built");
+  add(2, TFT_WHITE, "%s", BUILT);
+  add(1, TFT_BLACK, "");
+  add(1, TFT_LIGHTGREY, "commit (+: with changes not committed)");
+  add(2, TFT_WHITE, "%s", VERSION);
+}
+
 void draw() {
   canvas.fillSprite(TFT_BLACK);
   canvas.fillRect(0, 0, canvas.width(), 12, TFT_DARKGREY);
@@ -219,7 +235,8 @@ void update(const Status &s) {
   add(1, TFT_WHITE, "%-6s %d/%d                  battery %3d%%", PAGE_NAMES[page], page + 1, PAGES, battery);
   if (page == 0) statusPage(s);
   else if (page == 1) linkPage(s);
-  else logPage();
+  else if (page == 2) logPage();
+  else buildPage();
 
   if (forced || lineCount != drawnCount || memcmp(lines, drawn, sizeof(Line) * lineCount)) {
     draw();

@@ -1,10 +1,10 @@
 /*
  * Display.h - status pages on the M5Stack Cardputer's screen
  *
- * Three pages (status, link, log), switched from the Cardputer's keyboard:
- * any key goes to the next page, 1 2 3 jump to one. Nothing typed there is
- * sent anywhere. The G0 button steps the backlight through 0, 25, 50, 75
- * and 100%.
+ * Four pages (status, link, log, build), switched from the Cardputer's
+ * keyboard: any key goes to the next page, 1 to 4 jump to one. Nothing
+ * typed there is sent anywhere. The G0 button steps the backlight through
+ * 0, 25, 50, 75 and 100%.
  *
  * Built for any other board, everything here is empty, and the sketch needs
  * no display library.
