@@ -282,8 +282,9 @@ is not running.
 the calculator gives for each key or combination. 2nd adds 4096 and ◆ adds
 8192 to the key's own code.
 
-The menu's first line shows when the program was built, which tells whether
-the calculator has the latest copy.
+The menu's first line shows when the program was built and from which
+commit, with a `+` after it if there were changes not yet committed, which
+tells whether the calculator has the latest copy.
 
 ## Screenshots
 

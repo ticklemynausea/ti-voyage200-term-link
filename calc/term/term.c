@@ -20,6 +20,7 @@
 #include <tigcclib.h>
 #include "font.h"
 #include "help.h"
+#include "version.h"
 
 #define COLS 60
 #define ROWS 21
@@ -1065,7 +1066,7 @@ static void debugMenu(void)
 static short menu(void)
 {
   termPuts("\x1B" "c");
-  termPuts("Voyage 200 terminal, built " __DATE__ " " __TIME__ "\r\n\r\n");
+  termPuts("Voyage 200 terminal, built " __DATE__ " " __TIME__ ", " VERSION "\r\n\r\n");
   termPuts("  \x1B[7m F1 \x1B[0m  Serial        a shell on the computer, over USB\r\n\r\n");
   termPuts("  \x1B[7m F2 \x1B[0m  SSH           over the ESP32's Wi-Fi\r\n\r\n");
   termPuts("  \x1B[7m F3 \x1B[0m  Wi-Fi         pick the network to use\r\n\r\n");

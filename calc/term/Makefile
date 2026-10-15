@@ -7,8 +7,18 @@ CABLE ?= SilverLink
 BUILD = build
 OUT   = $(BUILD)/term.v2z
 
-$(OUT): term.c $(BUILD)/font.h $(BUILD)/help.h
+# The commit the program is built from, with a + if there were changes not
+# yet committed.
+VERSION := $(shell git describe --always --dirty=+ --exclude='*' 2>/dev/null || echo unknown)
+
+$(OUT): term.c $(BUILD)/font.h $(BUILD)/help.h $(BUILD)/version.h
 	$(CC) -Os -Wall -W -I$(BUILD) term.c -o $(BUILD)/term
+
+# Rewritten only when the commit changes, so that the program is rebuilt then.
+$(BUILD)/version.h: FORCE
+	mkdir -p $(BUILD)
+	echo '#define VERSION "$(VERSION)"' > $@.new
+	if cmp -s $@.new $@; then rm $@.new; else mv $@.new $@; fi
 
 $(BUILD)/font.h: font.txt mkfont.py
 	mkdir -p $(BUILD)
@@ -25,4 +35,6 @@ send: $(OUT)
 clean:
 	rm -rf $(BUILD)
 
-.PHONY: send clean
+FORCE:
+
+.PHONY: send clean FORCE
