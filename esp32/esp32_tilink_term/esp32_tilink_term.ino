@@ -27,7 +27,7 @@
  *   'w'  asks for the Wi-Fi status, for the menu's status bar. The answer is
  *        0x1E 'w', '+' or '-' for Wi-Fi up or down, a line of text and a
  *        newline. It leaves the backend alone.
- *   'y'  are you there? Asked by a quiet session. The answer is 0x1E 'y',
+ *   'y'  are you there? Asked every 2 s in a session. The answer is 0x1E 'y',
  *        two letters picked at power-up, and a newline: the calculator
  *        notices a restart by the letters. It is not queued with the other
  *        commands, so it is answered during the dialogs too, wherever it
@@ -107,9 +107,10 @@ bool rawMode = false;
 bool linkDown = false;  // both lines held low: calculator off or half plugged
 
 // The lines read idle with nothing plugged in too, so the calculator counts
-// as there only while it is heard from: its program asks for the Wi-Fi
-// status every 3 s in a menu, and whether the ESP32 is there every 3 s in a
-// quiet session.
+// as there only while its own bytes are heard: its program asks for the
+// Wi-Fi status every 3 s in a menu, and whether the ESP32 is there every 2 s
+// in a session, output or not. The bytes it takes do not count: after a
+// replug its link can be out of step, taking bytes but unable to send.
 const uint32_t HEARD_MS = 5000;
 uint32_t lastHeardMs = 0;
 bool heardOnce = false;
@@ -119,7 +120,7 @@ bool calcHeard() {
 }
 
 // How long a byte for a calculator not heard from lately waits for it to
-// speak: its next question is due within 3 s.
+// speak: its next question is due within 3 s, within 2 s in a session.
 const uint32_t CALC_WAIT_MS = 4000;
 uint32_t toCalc = 0, fromCalc = 0, dropped = 0, retries = 0;
 String line;
@@ -321,9 +322,11 @@ void pumpFromCalc() {
 // no bit of it went through.
 //
 // Nothing is started while the calculator has not been heard from lately: it
-// may be unplugged, and a byte under way when the cable goes back in can
-// slip by a bit, which garbles everything after it until the calculator's
-// link is reset. Its own next byte starts cleanly, so the byte waits for that.
+// may be unplugged, or its link may have slipped by a bit when the cable went
+// back in, which garbles everything after it and keeps it from sending. In
+// both cases the byte waits for the calculator to speak. The quiet meanwhile
+// is what puts a slipped link back in step: its hardware drops a half
+// received byte once the line has been still for a while.
 bool sendToCalc(uint8_t b) {
   uint32_t t0 = millis();
   while (!calcHeard()) {
@@ -340,8 +343,6 @@ bool sendToCalc(uint8_t b) {
     if (shotLeft) continue;  // a screenshot is arriving: the link is the calculator's
     if (ti.sendByte(b)) {
       toCalc++;
-      lastHeardMs = millis();  // it took the byte, bit by bit
-      heardOnce = true;
       return true;
     }
     bool nothingSent = ti.lastErrBit == 0 && ti.lastErrStage != 7;

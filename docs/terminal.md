@@ -97,9 +97,9 @@ entry that cannot be used has a checkered key and does not open:
 Debug and Help always open. When it powers up, the ESP32 joins the network
 it used last.
 
-**A lost link in a session.** A session that has had no output for 3 s asks
-the ESP32 whether it is still there, and asks again every 3 s. After 12 s
-with no answer, the bottom row says `ESP32: no answer, check the link cable`
+**A lost link in a session.** A session asks the ESP32 whether it is still
+there every 2 s, also while output is arriving. After 12 s with nothing
+from the ESP32, the bottom row says `ESP32: no answer, check the link cable`
 over whatever was there. When the ESP32 next sends something, the row goes
 back to what it was and the session carries on. If the ESP32 has restarted
 meanwhile, its session is gone, and the calculator says so:
@@ -109,19 +109,25 @@ answer takes 15 s to fail, so the row can show for a few seconds then.
 Whether the SSH host is still there is a different question, which this
 does not answer.
 
-While the ESP32 has not heard from the calculator for 5 s, it sends it
-nothing, and the next byte waits until the calculator speaks again: it asks
-something every 3 s in a menu or a quiet session. A byte under way when
-the cable goes back in can slip by a bit, and then everything after it
-reads wrong. The session's output waits meanwhile, SSH's as well as
-Serial's: unread, it holds the host back, so nothing is lost when the
-cable is pulled, or while the symbol strip is open.
+The ESP32 counts the calculator as there only while it hears the
+calculator's own bytes: a question every 3 s in a menu, every 2 s in a
+session. The bytes the calculator takes do not count. After 5 s without
+hearing it, the ESP32 sends it nothing, and the next byte waits until the
+calculator speaks again. The session's output waits meanwhile, SSH's as
+well as Serial's: unread, it holds the host back, so nothing is lost when
+the cable is pulled, or while the symbol strip is open.
 
-If a slip happens anyway, the calculator's side of the link stays out of
-step, and the menu shows `ESP32: no answer` with the ESP32 still there.
-After three unanswered questions the menu resets the calculator's side of
-the link, every 3 s until it has an answer, which is what leaving `term()`
-and starting it again would do.
+A byte under way when the cable comes out or goes back in can slip by a
+bit, and then everything after it reads wrong. While slipped, the
+calculator's side of the link still takes bytes but cannot send, so its
+questions stop, and within 5 s the ESP32 stops too. Once the line has been
+still for a few seconds, the calculator's link hardware drops the half byte,
+its next question gets through and the output carries on, clean. What was
+garbled meanwhile stays on the screen; Ctrl-L redraws it.
+
+If a menu still gets no answer, after three unanswered questions it resets
+the calculator's side of the link, every 3 s until it has an answer, which
+is what leaving `term()` and starting it again would do.
 
 In a Serial session with `make shell`, three more cases are looked after:
 
@@ -221,7 +227,7 @@ sent twice.
 | `1E 'i'` | the dialog that copies the key to the selected host starts |
 | `1E 'x'` | the session is over |
 | `1E 'w'` | what is the Wi-Fi status? |
-| `1E 'y'` | are you there? Asked at the start of a session and when it is quiet |
+| `1E 'y'` | are you there? Asked at the start of a session and every 2 s during it |
 | `1E 'l'` | which are the SSH hosts? |
 | `1E 'm'` | which are the Wi-Fi networks? |
 | `1E 'j'` | the selected Wi-Fi network is joined and used from now on |

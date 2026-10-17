@@ -741,11 +741,15 @@ static void drawStatus(const char *text, short len)
   for (col = 0; col < COLS; col++) drawCell(col, ROWS - 1, col < len ? text[col] : ' ', 1);
 }
 
-// A quiet session asks the ESP32 whether it is there, with LINK_MARK 'y', every
-// PING_TICKS. Silence for LOST_TICKS shows the banner over the bottom row,
-// until the next byte arrives. A busy ESP32 can also be silent for a while:
-// an SSH connection to a host that does not answer takes 15 s to fail.
-#define PING_TICKS 60   // 3 s
+// A session asks the ESP32 whether it is there, with LINK_MARK 'y', every
+// PING_TICKS, also while output is pouring in: the ESP32 counts the calculator
+// as there only while it hears from it. When the link slips out of step after
+// the cable was replugged, the calculator cannot send, so the ESP32 stops and
+// the quiet that follows puts the link back in step. Silence for LOST_TICKS
+// shows the banner over the bottom row, until the next byte arrives. A busy
+// ESP32 can also be silent for a while: an SSH connection to a host that does
+// not answer takes 15 s to fail.
+#define PING_TICKS 40   // 2 s: one lost ping still keeps the ESP32 within its 5 s
 #define LOST_TICKS 240  // 12 s
 
 static const char LOST_BANNER[] = " ESP32: no answer, check the link cable    2nd+ESC: menu";
@@ -803,7 +807,7 @@ static void session(short mode)
   for (;;) {
     if (online) {
       unsigned long now = FiftyMsecTick;
-      if (now - heard >= PING_TICKS && now - asked >= PING_TICKS) {
+      if (now - asked >= PING_TICKS) {
         linkCommand('y');
         asked = now;
       }
