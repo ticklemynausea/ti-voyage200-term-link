@@ -172,11 +172,18 @@ static void moveTo(short col, short row)
 
 // ---------- escape codes ----------
 
-enum { ST_TEXT, ST_ESC, ST_CSI, ST_SKIP, ST_OSC, ST_OSC_ESC, ST_MARK, ST_STATUS };
+// The states from ST_MARK on read the ESP32's answers, which can arrive
+// between any two bytes of the output.
+enum { ST_TEXT, ST_ESC, ST_CSI, ST_SKIP, ST_OSC, ST_OSC_ESC, ST_MARK, ST_STATUS, ST_PING };
 
 #define MAX_PARAMS 4
+#define LINK_MARK 0x1E
 
 static short state;
+static short markReturn;  // the state the output was in when an answer began
+static char espId[2];     // from the answer to LINK_MARK 'y': changes when the ESP32 restarts
+static short espIdLen;
+static short pingAnswered;
 static short params[MAX_PARAMS];
 static short paramCount;
 static short privateSeq;  // the sequence began with '?', '>' or '<'
@@ -387,7 +394,6 @@ static void putText(unsigned char c)
     case '\b': moveTo(curCol - 1, curRow); return;
     case '\t': moveTo((curCol | 7) + 1, curRow); return;
     case 0x1B: state = ST_ESC; return;
-    case 0x1E: state = ST_MARK; return;  // a late answer meant for the menu
   }
   if (c < 32) return;
 
@@ -401,6 +407,14 @@ static void putText(unsigned char c)
 
 static void termPutc(unsigned char c)
 {
+  // An answer from the ESP32 (or a late one meant for the menu) is taken
+  // out, and an escape sequence it fell into carries on after it.
+  if (c == LINK_MARK && state < ST_MARK) {
+    markReturn = state;
+    state = ST_MARK;
+    return;
+  }
+
   switch (state) {
     case ST_TEXT:
       putText(c);
@@ -452,11 +466,21 @@ static void termPutc(unsigned char c)
       break;
 
     case ST_MARK:
-      state = (c == 'w') ? ST_STATUS : ST_TEXT;
+      espIdLen = 0;
+      state = (c == 'w') ? ST_STATUS : (c == 'y') ? ST_PING : markReturn;
       break;
 
     case ST_STATUS:
-      if (c == '\n') state = ST_TEXT;
+      if (c == '\n') state = markReturn;
+      break;
+
+    case ST_PING:
+      if (c == '\n') {
+        state = markReturn;
+        pingAnswered = 1;
+      } else if (espIdLen < (short)sizeof(espId)) {
+        espId[espIdLen++] = c;
+      }
       break;
 
     case ST_SKIP:
@@ -485,8 +509,6 @@ static void termPuts(const char *s)
 //
 // A session starts by telling the ESP32 where the bytes should go, with LINK_MARK
 // and a letter, and ends with LINK_MARK 'x'. A real LINK_MARK byte is sent twice.
-
-#define LINK_MARK 0x1E
 
 enum {
   MODE_SERIAL, MODE_SSH, MODE_WIFI, MODE_SSH_HOST, MODE_SSH_KEY, MODE_SSH_COPY,  // through the link
@@ -695,22 +717,62 @@ static void handleKey(unsigned short key)
 
 // ---------- sessions ----------
 
+// The menu's bottom row, in reverse video.
+static void drawStatus(const char *text, short len)
+{
+  short col;
+  for (col = 0; col < COLS; col++) drawCell(col, ROWS - 1, col < len ? text[col] : ' ', 1);
+}
+
+// A quiet session asks the ESP32 whether it is there, with LINK_MARK 'y', every
+// PING_TICKS. Silence for LOST_TICKS shows the banner over the bottom row,
+// until the next byte arrives. A busy ESP32 can also be silent for a while:
+// an SSH connection to a host that does not answer takes 15 s to fail.
+#define PING_TICKS 60   // 3 s
+#define LOST_TICKS 240  // 12 s
+
+static const char LOST_BANNER[] = " ESP32: no answer, check the link cable    2nd+ESC: menu";
+static const char RESTARTED[] = "\r\n[ESP32 restarted, session lost: 2nd+ESC for the menu]\r\n";
+static unsigned char bannerSaved[CELL_H * LCD_ROW_BYTES];
+static short bannerShown;
+
+static void showBanner(void)
+{
+  hideCursor();
+  memcpy(bannerSaved, cellAddr(0, ROWS - 1), sizeof(bannerSaved));
+  drawStatus(LOST_BANNER, sizeof(LOST_BANNER) - 1);
+  bannerShown = 1;
+}
+
+static void hideBanner(void)
+{
+  memcpy(cellAddr(0, ROWS - 1), bannerSaved, sizeof(bannerSaved));
+  bannerShown = 0;
+}
+
 // Runs until the quit key. Serial, SSH and the settings sessions go through
 // the link (the ESP32 runs the settings dialogs); the local ones draw what
 // is typed, or each key's code.
 static void session(short mode)
 {
   char buf[64];
+  char sessionId[sizeof(espId)];
   unsigned short key;
+  unsigned long heard, asked;
+  short haveId = 0, restartTold = 0;
   short n;
 
   online = mode < MODE_LOCAL;
+  bannerShown = 0;
+  pingAnswered = 0;
   termPuts("\x1B" "c");
   if (mode == MODE_LOCAL) termPuts("[local echo, 2nd+ESC for the menu]\r\n");
   if (mode == MODE_KEY_CODES) termPuts("[key codes, 2nd+ESC for the menu]\r\n");
 
   if (online) {
     OSLinkOpen();  // drops whatever is still queued
+    // The first answer gives the ESP32's id, which later answers must match.
+    linkCommand('y');
     if (mode == MODE_SSH || mode == MODE_SSH_HOST || mode == MODE_SSH_COPY || mode == MODE_WIFI_JOIN) {
       linkCommand('0' + hostSlot);
     }
@@ -718,12 +780,34 @@ static void session(short mode)
     // Ctrl-L: a shell that is already waiting redraws its prompt.
     if (mode == MODE_SERIAL) hostSend("\x0C", 1);
   }
+  heard = asked = FiftyMsecTick;
   OSRegisterTimer(USER_TIMER, BLINK_TICKS);
 
   for (;;) {
+    if (online) {
+      unsigned long now = FiftyMsecTick;
+      if (now - heard >= PING_TICKS && now - asked >= PING_TICKS) {
+        linkCommand('y');
+        asked = now;
+      }
+      if (now - heard >= LOST_TICKS && !bannerShown) showBanner();
+    }
+
     n = online ? OSReadLinkBlock(buf, sizeof(buf)) : 0;
     if (n > 0) {
+      heard = FiftyMsecTick;
+      if (bannerShown) hideBanner();
       termWrite(buf, n);
+      if (pingAnswered) {
+        pingAnswered = 0;
+        if (!haveId) {
+          memcpy(sessionId, espId, sizeof(espId));
+          haveId = 1;
+        } else if (memcmp(sessionId, espId, sizeof(espId)) && !restartTold) {
+          termPuts(RESTARTED);
+          restartTold = 1;
+        }
+      }
       toggleCursor();
       OSTimerRestart(USER_TIMER);
     } else if (!OSdequeue(&key, keyQueue)) {
@@ -736,10 +820,11 @@ static void session(short mode)
       } else {
         handleKey(key);
       }
-      if (!cursorShown) toggleCursor();
+      // The banner's row is kept as it was under it: no cursor while it shows.
+      if (!cursorShown && !bannerShown) toggleCursor();
       OSTimerRestart(USER_TIMER);
     } else if (OSTimerExpired(USER_TIMER)) {
-      toggleCursor();
+      if (!bannerShown) toggleCursor();
       OSTimerRestart(USER_TIMER);
     } else {
       idle();
@@ -749,6 +834,7 @@ static void session(short mode)
   OSFreeTimer(USER_TIMER);
   if (online) linkCommand('x');
   online = 0;
+  state = ST_TEXT;  // an answer or a sequence cut short by the quit key
 }
 
 static void testPattern(void)
@@ -785,13 +871,6 @@ static void testPattern(void)
 }
 
 #define STATUS_TICKS 60  // 3 s between questions to the ESP32
-
-// The menu's bottom row, in reverse video.
-static void drawStatus(const char *text, short len)
-{
-  short col;
-  for (col = 0; col < COLS; col++) drawCell(col, ROWS - 1, col < len ? text[col] : ' ', 1);
-}
 
 // The pages of help.txt, one screen each.
 static void showHelp(void)

@@ -97,6 +97,18 @@ entry that cannot be used has a checkered key and does not open:
 Debug and Help always open. When it powers up, the ESP32 joins the network
 it used last.
 
+**A lost link in a session.** A session that has had no output for 3 s asks
+the ESP32 whether it is still there, and asks again every 3 s. After 12 s
+with no answer, the bottom row says `ESP32: no answer, check the link cable`
+over whatever was there. When the ESP32 next sends something, the row goes
+back to what it was and the session carries on. If the ESP32 has restarted
+meanwhile, its session is gone, and the calculator says so:
+`[ESP32 restarted, session lost: 2nd+ESC for the menu]`. The ESP32 can
+also go quiet while it is busy: an SSH connection to a host that does not
+answer takes 15 s to fail, so the row can show for a few seconds then.
+Whether the SSH host is still there is a different question, which this
+does not answer.
+
 `make shell` can be started before or after choosing Serial: its output
 waits until the calculator is in that session. Close the Serial Monitor
 first: only one program can hold the ESP32's port.
@@ -180,18 +192,26 @@ sent twice.
 | `1E 'i'` | the dialog that copies the key to the selected host starts |
 | `1E 'x'` | the session is over |
 | `1E 'w'` | what is the Wi-Fi status? |
+| `1E 'y'` | are you there? Asked at the start of a session and when it is quiet |
 | `1E 'l'` | which are the SSH hosts? |
 | `1E 'm'` | which are the Wi-Fi networks? |
 | `1E 'j'` | the selected Wi-Fi network is joined and used from now on |
 | `1E 'p'` | a screenshot: the 3840 bytes of the screen follow, as they are |
 
-**ESP32 to calculator.** Plain terminal output, except three answers. To the
+**ESP32 to calculator.** Plain terminal output, except four answers. To the
 status question: `1E 'w'`, `+` if Wi-Fi is connected or `-` if not, a line
 of text, a newline. To the hosts
 question: `1E 'l'`, then eight lines, each `user@host` (with `:port` if it
 is not 22) or empty, each ended by a newline. To the networks question:
 `1E 'm'`, then four lines in the same way, each a network's name, with a
-note if it is joined or was used last.
+note if it is joined or was used last. To are you there: `1E 'y'`, two
+letters the ESP32 picks at power-up, a newline. That answer is not queued
+behind the other commands, so it comes during the settings dialogs too, and
+it can fall anywhere in the output, even inside an escape sequence; the
+calculator takes it out and the sequence carries on. Different letters
+mean the ESP32 has restarted. An ESP32 with an older sketch takes the
+`'y'` for an unknown command and ends the session, so the calculator and
+the ESP32 have to be updated together.
 
 **Computer to ESP32** (`shell/shell.py`). Three `0x1E` bytes, a word and a
 newline switch the sketch's serial mode: `raw` or `monitor`. In raw mode
@@ -372,7 +392,7 @@ This is about the screen only. The keyboard still types ASCII.
   this sketch turns on the ESP32's internal pull-ups.
 - **libssh needs a large stack.** The sketch gives the Arduino loop task
   48 KB instead of the default 8 KB. With SSH and its keys the sketch takes
-  89% of the default 1.3 MB program partition.
+  90% of the default 1.3 MB program partition.
 
 For the wiring and the hardware, see [hardware.md](hardware.md).
 

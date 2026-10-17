@@ -34,6 +34,7 @@ docs/
   tmux-and-screen.md                 several windows on the calculator's screen
   hardware.md                        parts, wiring, wiring check, building and flashing
   link-partner.md                    the link-partner sketch and its protocol findings
+  manual-tests.md                    tests run by hand on the hardware
   repository.md                      this file
   pics/                              photographs and screenshots
 README.md                            what the project is, with pictures

@@ -136,6 +136,8 @@ ssh_key loadKey() {
 
 }  // namespace
 
+void (*Ssh::waiting)() = nullptr;
+
 bool Ssh::joinWifi(const Target &target, SayFn say) {
   if (WiFi.status() == WL_CONNECTED && WiFi.SSID() == target.wifiName) return true;
   sayf(say, "Joining Wi-Fi %s...", target.wifiName.c_str());
@@ -150,6 +152,7 @@ bool Ssh::joinWifi(const Target &target, SayFn say) {
       return false;
     }
     delay(100);
+    if (waiting) waiting();
   }
   sayf(say, "Wi-Fi up, address %s", WiFi.localIP().toString().c_str());
   return true;

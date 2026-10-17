@@ -46,6 +46,9 @@ void write(const uint8_t *data, size_t len);
 // Joins the network, dropping a connection to a different one.
 bool joinWifi(const Target &target, SayFn say);
 
+// If set, called about every 100 ms while joinWifi waits for the network.
+extern void (*waiting)();
+
 void forgetHostKey(uint8_t slot);
 
 // The ESP32's own key pair.

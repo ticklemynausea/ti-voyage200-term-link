@@ -97,6 +97,7 @@ The software to install and the quick start are in
 | **tmux and screen** | Settings that fit several windows on the calculator's screen. | [docs/tmux-and-screen.md](docs/tmux-and-screen.md) |
 | **ESP32 as a link partner** | The ESP32 speaks TI's packet protocol, posing as a CBL data logger or another calculator, so TI-BASIC's `Send`, `Get` and `SendCalc` talk to it. | [docs/link-partner.md](docs/link-partner.md) |
 | **Calculator-to-calculator protocol** | The ESP32 listens passively between two Voyage 200s; twenty tests document what they say to each other. | [PROTOCOL.md](calc-to-calc-protocol-reversed/PROTOCOL.md), [its README](calc-to-calc-protocol-reversed/README.md) |
+| **Manual tests** | Tests run by hand on the calculator and the ESP32, by feature. | [docs/manual-tests.md](docs/manual-tests.md) |
 | **Repository** | The layout of the files, and the experiments that were removed. | [docs/repository.md](docs/repository.md) |
 
 ## Status

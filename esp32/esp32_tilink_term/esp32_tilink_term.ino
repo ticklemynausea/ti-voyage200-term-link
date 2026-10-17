@@ -27,6 +27,11 @@
  *   'w'  asks for the Wi-Fi status, for the menu's status bar. The answer is
  *        0x1E 'w', '+' or '-' for Wi-Fi up or down, a line of text and a
  *        newline. It leaves the backend alone.
+ *   'y'  are you there? Asked by a quiet session. The answer is 0x1E 'y',
+ *        two letters picked at power-up, and a newline: the calculator
+ *        notices a restart by the letters. It is not queued with the other
+ *        commands, so it is answered during the dialogs too, wherever it
+ *        falls in the output, and leaves everything else alone.
  *   'p'  a screenshot: the 3840 bytes of the calculator's screen follow, as
  *        they are. It leaves the backend alone too. With a computer attached
  *        (paced raw mode, below) they are passed on as 0x1E 'p' and the bytes. * A real 0x1E byte from the calculator arrives doubled.
@@ -91,7 +96,8 @@ bool linkDown = false;  // both lines held low: calculator off or half plugged
 
 // The lines read idle with nothing plugged in too, so the calculator counts
 // as there only while it is heard from: its program asks for the Wi-Fi
-// status every 3 s in a menu. A quiet session counts as waiting.
+// status every 3 s in a menu, and whether the ESP32 is there every 3 s in a
+// quiet session.
 const uint32_t HEARD_MS = 5000;
 uint32_t lastHeardMs = 0;
 bool heardOnce = false;
@@ -111,6 +117,8 @@ Backend backend = BACKEND_NONE;
 bool markFromCalc = false;
 char pendingCommands[8];
 uint8_t pendingCount = 0;
+bool pingAsked = false;  // the calculator's 'y', answered by answerPing()
+char bootId[2];          // in the answer: new at every power-up
 
 // While a question is being asked on the calculator, its keys are kept here
 // instead of going to a backend.
@@ -237,7 +245,10 @@ void pumpFromCalc() {
   }
   for (;;) {
     int b = ti.recvByte(0);
-    if (b == -1) return;
+    if (b == -1) {
+      answerPing();
+      return;
+    }
     if (b < 0) {
       if (ti.lastErrStage == 2 && ti.lastErrBit == 0) {
         linkDown = true;
@@ -262,6 +273,8 @@ void pumpFromCalc() {
       } else if (b == 'p') {
         shotLeft = SHOT_BYTES;
         shotLastMs = millis();
+      } else if (b == 'y') {
+        pingAsked = true;
       } else if (pendingCount < sizeof(pendingCommands)) {
         pendingCommands[pendingCount++] = (char)b;
       }
@@ -304,6 +317,20 @@ bool sendToCalc(uint8_t b) {
 bool sendText(const char *s) {
   while (*s) if (!sendToCalc((uint8_t)*s++)) return false;
   return true;
+}
+
+// The answer to the calculator's 'y'. It can go between any two bytes of the
+// session's output, even inside an escape sequence: the calculator takes it
+// out wherever it falls. Sending pumps the link, so it can be asked again
+// meanwhile, and that waits for the next call.
+void answerPing() {
+  static bool answering = false;
+  if (!pingAsked || answering || shotLeft) return;
+  answering = true;
+  pingAsked = false;
+  const char answer[] = {(char)CONTROL_MARK, 'y', bootId[0], bootId[1], '\n', 0};
+  sendText(answer);  // stops at a dropped byte, as when the link went away meanwhile
+  answering = false;
 }
 
 // ---------- the calculator's commands ----------
@@ -934,6 +961,8 @@ void setup() {
   Display::begin();  // before the link: the screen's library sets up pins of its own
   ti.begin();
   loadSettings();
+  for (char &c : bootId) c = 'A' + (esp_random() ^ micros()) % 26;
+  Ssh::waiting = pumpFromCalc;  // the calculator's 'y' is answered while Wi-Fi is joined
   // Join the network used last in the background, so it is up before it is
   // needed.
   uint8_t order[MAX_NETWORKS];
