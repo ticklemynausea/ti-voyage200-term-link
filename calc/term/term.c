@@ -408,7 +408,9 @@ static void putText(unsigned char c)
 static void termPutc(unsigned char c)
 {
   // An answer from the ESP32 (or a late one meant for the menu) is taken
-  // out, and an escape sequence it fell into carries on after it.
+  // out, and an escape sequence it fell into carries on after it. A real
+  // LINK_MARK in the output arrives doubled; the second one ends ST_MARK
+  // like any letter that is not an answer, and draws nothing.
   if (c == LINK_MARK && state < ST_MARK) {
     markReturn = state;
     state = ST_MARK;
@@ -534,6 +536,21 @@ static void linkCommand(char letter)
   command[0] = LINK_MARK;
   command[1] = letter;
   OSWriteLinkBlock(command, 2);
+}
+
+// After the cable came out and went back in, the OS's side of the link can be
+// stuck part way through a byte, so that nothing the ESP32 sends reads right
+// any more; only a reset clears that. A reset drops what is queued and cuts
+// off a byte under way, so it is done only in a menu that has had no answer
+// for a while: the ESP32's answers are short, so a reset almost always falls
+// between them, and the next question gets through.
+// The reset may have dropped the 'x' that ended the last session, so it is
+// sent again; with no session going it does nothing.
+static void resetLink(void)
+{
+  OSLinkReset();
+  OSLinkOpen();
+  linkCommand('x');
 }
 
 // Sends bytes towards the host. In a local session it echoes them the way a
@@ -810,7 +827,11 @@ static void session(short mode)
       }
       toggleCursor();
       OSTimerRestart(USER_TIMER);
-    } else if (!OSdequeue(&key, keyQueue)) {
+    }
+
+    // Keys are read on every pass, so that the quit key and Ctrl-C get
+    // through a flood of output too.
+    if (!OSdequeue(&key, keyQueue)) {
       if (isQuitKey(key)) break;
       if (key == KEY_SCREENSHOT && mode != MODE_KEY_CODES) {
         sendScreen();
@@ -823,10 +844,10 @@ static void session(short mode)
       // The banner's row is kept as it was under it: no cursor while it shows.
       if (!cursorShown && !bannerShown) toggleCursor();
       OSTimerRestart(USER_TIMER);
-    } else if (OSTimerExpired(USER_TIMER)) {
+    } else if (n == 0 && OSTimerExpired(USER_TIMER)) {
       if (!bannerShown) toggleCursor();
       OSTimerRestart(USER_TIMER);
-    } else {
+    } else if (n == 0) {
       idle();
     }
   }
@@ -992,6 +1013,8 @@ static short menuChoice(short entries, short needEsp, short needWifi)
           answered = 0;
           shadeKeys(entries, needEsp | needWifi, 1);
         }
+        resetLink();
+        step = 0;
       }
       linkCommand('w');
       OSTimerRestart(USER_TIMER);
@@ -1027,6 +1050,7 @@ static short listMenu(const char *title, const char *hint, short emptyToo, short
   short step = 0;   // 0 other bytes, 1 after LINK_MARK, 2 in the list
   short line = 0;   // of the list, count once it is complete
   short col = 0;
+  short unanswered = 0;
   short n, i;
 
   termPuts("\x1B" "c");
@@ -1084,6 +1108,10 @@ static short listMenu(const char *title, const char *hint, short emptyToo, short
       }
     } else if (line < count && OSTimerExpired(USER_TIMER)) {
       drawStatus("ESP32: no answer", 16);
+      if (++unanswered > 2) {
+        resetLink();
+        step = 0;
+      }
       linkCommand(letter);
       OSTimerRestart(USER_TIMER);
     } else if (n == 0) {

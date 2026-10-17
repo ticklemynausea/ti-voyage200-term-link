@@ -19,7 +19,9 @@ session. While this script is attached it is saved as a PNG in screenshots/
 (--screenshots DIR), each pixel drawn --scale times as large (default 4).
 
 Ends when the command exits, or with Ctrl-C here (Ctrl-] with --mirror, where
-Ctrl-C goes to the shell).
+Ctrl-C goes to the shell). If the ESP32's port goes away (unplugged, or the
+ESP32 lost power) the command keeps running, paused once its output piles
+up, and the port is opened again when it comes back.
 """
 import argparse
 import fcntl
@@ -45,9 +47,17 @@ QUIT_KEY = 0x1D  # Ctrl-], as in telnet: Ctrl-C has to reach the shell
 # The link is far slower than USB and the ESP32 drops serial bytes it has no
 # room for. So at most WINDOW bytes are outstanding; the ESP32 answers every
 # ACK_EVERY bytes it has dealt with by sending MARK 'a'. A real MARK byte from
-# the calculator arrives doubled.
+# the calculator arrives doubled. A real MARK byte in the command's output is
+# sent as MARK 'e', so that three marks in a row only ever start a control
+# line; it counts as one byte of the window.
 WINDOW = 128
 ACK_EVERY = 32
+
+# In a quiet Serial session the ESP32 asks MARK 'k', are you there?, and is
+# answered the same. Without an answer it tells the calculator.
+
+# How often a port that went away is looked for.
+REOPEN_WAIT = 1.0
 
 # A screenshot arrives as MARK 'p' and the calculator's screen: one bit per
 # pixel, a set bit being a dark one, the leftmost pixel in the top bit.
@@ -146,6 +156,40 @@ def write_all(fd, data):
         data = data[os.write(fd, data):]
 
 
+def escape(data):
+    return data.replace(bytes([MARK]), bytes([MARK, ord("e")]))
+
+
+class PortLost(Exception):
+    """The ESP32's port went away."""
+
+
+def read_serial(fd):
+    try:
+        data = os.read(fd, 1024)
+    except BlockingIOError:
+        return b""
+    except OSError as err:
+        raise PortLost from err
+    if not data:
+        raise PortLost
+    return data
+
+
+def write_serial(fd, data):
+    try:
+        write_all(fd, data)
+    except BlockingIOError:
+        raise
+    except OSError as err:
+        raise PortLost from err
+
+
+def notice(text):
+    """A line in this window; \r\n since it may be in raw mode for --mirror."""
+    os.write(2, f"{text}\r\n".encode())
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--port", help="ESP32 serial port (default: first /dev/cu.usbmodem*)")
@@ -156,7 +200,10 @@ def main():
     parser.add_argument("command", nargs=argparse.REMAINDER, help="command to run (default: login shell)")
     args = parser.parse_args()
 
-    port = args.port or next(iter(sorted(glob.glob("/dev/cu.usbmodem*"))), None)
+    def find_port():
+        return args.port or next(iter(sorted(glob.glob("/dev/cu.usbmodem*"))), None)
+
+    port = find_port()
     if not port:
         sys.exit("No ESP32 found on /dev/cu.usbmodem*. Plug it in or pass --port.")
     if args.no_shell and (args.command or args.mirror):
@@ -207,70 +254,92 @@ def main():
     assume_at = time.monotonic() + SYNC_WAIT  # an ESP32 already in raw mode may not answer
     ask_again_at = None  # after a restart of the ESP32: when to ask for raw mode again
     held = b""
+    out = b""  # escaped bytes on their way to the ESP32, and answers to MARK 'k'
+    reopen_at = None  # while the port is gone: when to look for it again
     exited = False  # the command is gone; what is queued still has to go out
     try:
-        while not (exited and not to_calc):
-            readers = [serial] + ([master] if pid and not exited and len(to_calc) < MAX_QUEUE else [])
+        # Once the command is gone, nothing more is waited for from a port that went away.
+        while not (exited and (serial is None or not (to_calc or out))):
+            readers = [serial] if serial is not None else []
+            if pid and not exited and len(to_calc) < MAX_QUEUE:
+                readers.append(master)
             if keyboard is not None and not exited:
                 readers.append(keyboard)
-            may_send = synced and to_calc and in_flight < WINDOW
-            wake_at = assume_at or ask_again_at
+            may_send = serial is not None and (out or (synced and to_calc and in_flight < WINDOW))
+            wake_at = reopen_at or assume_at or ask_again_at
             wait = max(0, wake_at - time.monotonic()) if wake_at else HELD_WAIT if held else None
             readable, writable, _ = select.select(readers, [serial] if may_send else [], [], wait)
 
-            data = b""
-            if serial in readable:
-                data = held + os.read(serial, 1024)
-                held = b""
-            elif not readable and not writable:  # the wait ran out
-                if assume_at:
-                    synced, assume_at = True, None
-                elif ask_again_at:
-                    write_all(serial, CONTROL + b"raw\n")
-                    ask_again_at = time.monotonic() + SYNC_WAIT
-                else:
-                    data, held = held, b""  # it was not BOOT_TEXT after all
-            if data and synced and screen is None:
-                at = data.find(BOOT_TEXT)
-                if at >= 0:  # the ESP32 restarted; MARK 'b' follows its boot messages
-                    data = data[:at]
-                    synced, ask_again_at = False, time.monotonic() + 3 * SYNC_WAIT
-                elif serial in readable:
-                    for n in range(len(BOOT_TEXT) - 1, 0, -1):
-                        if data.endswith(BOOT_TEXT[:n]):
-                            data, held = data[:-n], data[-n:]
-                            break
-
+            lost = False
             keys = bytearray()
-            for byte in data:
-                if screen is not None:
-                    screen.append(byte)
-                    if len(screen) == SCREEN_BYTES:
-                        path = save_screenshot(screen, args.screenshots, args.scale)
-                        screen = None
-                        if keyboard is None:  # a mirrored session owns this window
-                            print(f"Saved {path}")
-                elif after_mark:
-                    after_mark = False
-                    if byte == ord("r"):
-                        if not synced:
-                            in_flight = 0
-                        synced, assume_at, ask_again_at = True, None, None
-                    elif byte == ord("b"):
-                        write_all(serial, CONTROL + b"raw\n")
-                        synced, assume_at, ask_again_at = False, None, time.monotonic() + SYNC_WAIT
-                    elif not synced:
-                        pass
+            try:
+                data = b""
+                if serial in readable:
+                    data = held + read_serial(serial)
+                    held = b""
+                elif not readable and not writable:  # the wait ran out
+                    if reopen_at:
+                        port = find_port() or port
+                        try:
+                            serial = open_serial(port)
+                        except OSError:
+                            reopen_at = time.monotonic() + REOPEN_WAIT
+                        else:
+                            notice(f"{port} is back.")
+                            reopen_at = None
+                            write_serial(serial, CONTROL + b"raw\n")
+                            assume_at = time.monotonic() + SYNC_WAIT
+                    elif assume_at:
+                        synced, assume_at = True, None
+                    elif ask_again_at:
+                        write_serial(serial, CONTROL + b"raw\n")
+                        ask_again_at = time.monotonic() + SYNC_WAIT
+                    else:
+                        data, held = held, b""  # it was not BOOT_TEXT after all
+                if data and synced and screen is None:
+                    at = data.find(BOOT_TEXT)
+                    if at >= 0:  # the ESP32 restarted; MARK 'b' follows its boot messages
+                        data = data[:at]
+                        synced, ask_again_at = False, time.monotonic() + 3 * SYNC_WAIT
+                    elif serial in readable:
+                        for n in range(len(BOOT_TEXT) - 1, 0, -1):
+                            if data.endswith(BOOT_TEXT[:n]):
+                                data, held = data[:-n], data[-n:]
+                                break
+
+                for byte in data:
+                    if screen is not None:
+                        screen.append(byte)
+                        if len(screen) == SCREEN_BYTES:
+                            path = save_screenshot(screen, args.screenshots, args.scale)
+                            screen = None
+                            if keyboard is None:  # a mirrored session owns this window
+                                print(f"Saved {path}")
+                    elif after_mark:
+                        after_mark = False
+                        if byte == ord("r"):
+                            if not synced:
+                                in_flight = 0
+                            synced, assume_at, ask_again_at = True, None, None
+                        elif byte == ord("b"):
+                            write_serial(serial, CONTROL + b"raw\n")
+                            synced, assume_at, ask_again_at = False, None, time.monotonic() + SYNC_WAIT
+                        elif byte == ord("k"):
+                            out += bytes([MARK, ord("k")])
+                        elif not synced:
+                            pass
+                        elif byte == MARK:
+                            keys.append(byte)
+                        elif byte == ord("a"):
+                            in_flight = max(0, in_flight - ACK_EVERY)
+                        elif byte == ord("p"):
+                            screen = bytearray()
                     elif byte == MARK:
+                        after_mark = True
+                    elif synced:
                         keys.append(byte)
-                    elif byte == ord("a"):
-                        in_flight = max(0, in_flight - ACK_EVERY)
-                    elif byte == ord("p"):
-                        screen = bytearray()
-                elif byte == MARK:
-                    after_mark = True
-                elif synced:
-                    keys.append(byte)
+            except PortLost:
+                lost = True
             if keys and pid and not exited:
                 write_all(master, bytes(keys))
             elif not pid and 0x0C in keys:  # what a Serial session starts with
@@ -289,10 +358,34 @@ def main():
                 to_calc += data
                 if args.mirror:
                     mirror.write(data)
-            if serial in writable:
-                sent = os.write(serial, to_calc[:WINDOW - in_flight])
-                to_calc = to_calc[sent:]
-                in_flight += sent
+            if serial in writable and not lost:
+                # The window counts the command's bytes; they are escaped
+                # only on the way out, a window's worth at a time.
+                if not out:
+                    room = WINDOW - in_flight
+                    chunk, to_calc = to_calc[:room], to_calc[room:]
+                    in_flight += len(chunk)
+                    out = escape(chunk)
+                try:
+                    out = out[os.write(serial, out):]
+                except BlockingIOError:
+                    pass
+                except OSError:
+                    lost = True
+
+            if lost:
+                # What was on its way is dropped: at most a window's worth.
+                # The command keeps running, and is paused once MAX_QUEUE
+                # bytes of its output wait.
+                try:
+                    os.close(serial)
+                except OSError:
+                    pass
+                serial, out, in_flight, held = None, b"", 0, b""
+                synced, assume_at, ask_again_at = False, None, None
+                after_mark, screen = False, None
+                reopen_at = time.monotonic() + REOPEN_WAIT
+                notice(f"{port} went away. Waiting for it to come back; {stop_key} here to stop.")
     except KeyboardInterrupt:
         pass
     finally:
@@ -303,8 +396,12 @@ def main():
                 os.kill(pid, signal.SIGHUP)
         except ProcessLookupError:
             pass
-        write_all(serial, b"\r\n[session ended]\r\n" + CONTROL + b"monitor\n")
-        os.close(serial)
+        if serial is not None:
+            try:
+                write_all(serial, b"\r\n[session ended]\r\n" + CONTROL + b"monitor\n")
+                os.close(serial)
+            except OSError:
+                pass
     print("\nSession ended.")
 
 

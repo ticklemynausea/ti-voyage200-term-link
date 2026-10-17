@@ -109,6 +109,35 @@ answer takes 15 s to fail, so the row can show for a few seconds then.
 Whether the SSH host is still there is a different question, which this
 does not answer.
 
+While the ESP32 has not heard from the calculator for 5 s, it sends it
+nothing, and the next byte waits until the calculator speaks again: it asks
+something every 3 s in a menu or a quiet session. A byte under way when
+the cable goes back in can slip by a bit, and then everything after it
+reads wrong. The session's output waits meanwhile, SSH's as well as
+Serial's: unread, it holds the host back, so nothing is lost when the
+cable is pulled, or while the symbol strip is open.
+
+If a slip happens anyway, the calculator's side of the link stays out of
+step, and the menu shows `ESP32: no answer` with the ESP32 still there.
+After three unanswered questions the menu resets the calculator's side of
+the link, every 3 s until it has an answer, which is what leaving `term()`
+and starting it again would do.
+
+In a Serial session with `make shell`, three more cases are looked after:
+
+- **The calculator away.** As above: the ESP32 stops reading what
+  `make shell` sends. The script waits and the command is paused once its
+  output piles up, so nothing is lost; it carries on when the cable is back.
+- **The computer away.** If `make shell` was killed, its window closed or
+  the computer went to sleep, the ESP32 hears nothing from it for 10 s and
+  the calculator shows `[no answer from the computer: is make shell still
+  running?]`, then `[the computer is answering again]` when it is back. A
+  new `make shell` can be started at any time.
+- **The ESP32 away.** If the ESP32's port goes away (unplugged, or it lost
+  power), `make shell` says so and keeps the command running, and opens
+  the port again when it comes back. What was on its way, at most 128
+  bytes, is lost; Ctrl-L redraws the screen.
+
 `make shell` can be started before or after choosing Serial: its output
 waits until the calculator is in that session. Close the Serial Monitor
 first: only one program can hold the ESP32's port.
@@ -209,19 +238,27 @@ letters the ESP32 picks at power-up, a newline. That answer is not queued
 behind the other commands, so it comes during the settings dialogs too, and
 it can fall anywhere in the output, even inside an escape sequence; the
 calculator takes it out and the sequence carries on. Different letters
-mean the ESP32 has restarted. An ESP32 with an older sketch takes the
-`'y'` for an unknown command and ends the session, so the calculator and
-the ESP32 have to be updated together.
+mean the ESP32 has restarted. A real `0x1E` in the session's output, from
+SSH or the serial port, is sent twice, so a program on the host cannot pass
+for the ESP32; the calculator draws nothing for it. An ESP32 with an older
+sketch takes the `'y'` for an unknown command and ends the session, so the
+calculator, the ESP32 and `shell.py` have to be updated together.
 
 **Computer to ESP32** (`shell/shell.py`). Three `0x1E` bytes, a word and a
-newline switch the sketch's serial mode: `raw` or `monitor`. In raw mode
-entered that way the script keeps at most 128 bytes outstanding, and the
-sketch answers `1E 'a'` for every 32 bytes it has passed on.
+newline switch the sketch's serial mode: `raw` or `monitor`. That works in
+either mode, which matters when the script does not know which the ESP32 is
+in. In raw mode entered that way the script keeps at most 128 bytes
+outstanding, and the sketch answers `1E 'a'` for every 32 bytes it has
+passed on. A real `0x1E` in the command's output is sent as `1E 'e'`, so
+three in a row can only be a control line. It is not sent twice as in the
+other directions because `1E 1E 1E` has to stay free for the control lines.
+`1E 'k'` answers the sketch's question below.
 
 **ESP32 to computer.** In that paced raw mode a real `0x1E` from the
 calculator is sent twice, and a screenshot is `1E 'p'` and its 3840 bytes.
 The sketch answers the `raw` line with `1E 'r'` and sends `1E 'b'` when it
-starts.
+starts. In a Serial session that has heard nothing from the script for 3 s
+it asks `1E 'k'`, are you there?
 
 Those two exist because monitor mode prints text meant for a person. A
 script that believes the sketch is in raw mode would take that text for
