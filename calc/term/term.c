@@ -408,7 +408,9 @@ static void putText(unsigned char c)
 static void termPutc(unsigned char c)
 {
   // An answer from the ESP32 (or a late one meant for the menu) is taken
-  // out, and an escape sequence it fell into carries on after it.
+  // out, and an escape sequence it fell into carries on after it. A real
+  // LINK_MARK in the output arrives doubled; the second one ends ST_MARK
+  // like any letter that is not an answer, and draws nothing.
   if (c == LINK_MARK && state < ST_MARK) {
     markReturn = state;
     state = ST_MARK;

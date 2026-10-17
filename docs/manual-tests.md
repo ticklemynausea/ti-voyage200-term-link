@@ -78,17 +78,68 @@ Updating only one side is easy to do by mistake, so check what happens.
 | L40 | New program on the calculator, a sketch from before this change on the ESP32. Start SSH and leave it quiet. | After 3 s the ESP32 takes `'y'` for an unknown command and ends the session: the shell stops answering and the Cardputer's log says "calculator: menu". This is the documented limit; flashing the ESP32 fixes it. |
 | L41 | Old program on the calculator, new sketch on the ESP32. Use SSH and Serial for a while. | Everything works as before. The ESP32 is never asked `'y'`. |
 
-### Reading the answer out of the output
+### A real 0x1E in the output
 
-These inject fake answers from the shell, which shows that the calculator
-takes them out wherever they fall. Run them in a Serial session or SSH.
+A real `0x1E` from the host is sent to the calculator doubled, and from
+`shell.py` to the ESP32 as `1E 'e'`, so the host's output can never pass for
+an answer or a control line. Run each in SSH and again in a Serial session
+with `make shell`.
 
 | ID | Steps | Expected |
 |---|---|---|
-| L50 | `printf '\e[10\x1ew+fake status\n;20HX\n'` | An `X` at row 10, column 20. Nothing of `fake status` is shown. |
-| L51 | `printf 'caf\xc3\x1ew+x\n\xa9\n'` | `café`: an answer in the middle of a UTF-8 character does not break it. |
-| L52 | Wait 5 s, then `printf '\x1eyQQ\n'` (`QQ` is unlikely to be the ESP32's letters; if the restart line does not show, try `ZZ`). | The restart line appears. This shows that the check works, and also that a program on the host can fake it, which only affects the message. |
-| L53 | `printf 'a\x1eqb\n'` | `ab`: a `1E` followed by a letter that is not an answer is dropped with the letter, as before. |
+| L50 | `printf 'a\x1ew+fake status\nb\n'` | `aw+fake status` on one line, `b` on the next: the `1E` itself draws nothing, and nothing is taken for an answer. |
+| L51 | Wait 5 s, then `printf '\x1eyQQ\n'`, and again with `ZZ`. | `yQQ` and `yZZ` are shown. No restart line. |
+| L52 | `printf '\e[10;20HX\x1e\e[12;20HY\n'` | `X` at row 10, `Y` at row 12, both in column 20: a `1E` between two sequences leaves both alone. |
+| L53 | `head -c 20000 /dev/urandom` (in Serial: a few times), then `reset`. | Garbage on the screen, then a clean terminal after `reset`. The session goes on working: `echo ok`. In Serial, the ESP32 stays in raw mode (no monitor text appears) and output keeps flowing afterwards, which shows that runs of `1E` in the output neither start control lines nor upset the acknowledgements. |
+| L54 | Serial only: `printf '\x1e\x1e\x1emonitor\n'; echo still-raw` | Three `1E` draw nothing, then `monitor` and `still-raw` are shown. The ESP32 stays in raw mode. |
+
+## Serial sessions with make shell
+
+What it covers: while the calculator is away the ESP32 leaves `shell.py`'s
+bytes unread, so nothing is lost; the ESP32 asks `shell.py` `1E 'k'` and
+tells the calculator when it stops answering; `shell.py` keeps the command
+running while the ESP32's port is gone and opens it again when it is back.
+See "A lost link in a session" in [terminal.md](terminal.md).
+
+Start each test with `make shell` running and the calculator in a Serial
+session, unless it says otherwise.
+
+### The calculator away
+
+| ID | Steps | Expected |
+|---|---|---|
+| S01 | `i=0; while true; do i=$((i+1)); echo $i; sleep 1; done`. Pull the calculator's cable for 30 s, then plug it back. | Banner after about 12 s. After plugging back the numbers carry on **without a gap**: every number appears, the missed ones in a burst. At most a character or two may be missing around the moment the cable came out. |
+| S02 | `seq 1 5000`, pull the cable half way through, wait 20 s, plug back. | The rest of the numbers arrive, in order and without a gap, apart from a character or two at the moment the cable came out. |
+| S03 | Leave the calculator in the main menu for a minute while `make shell` runs `while true; do date; sleep 1; done`, then choose Serial. | As before this change: the dates held back meanwhile arrive when the session starts. |
+
+### The computer away
+
+| ID | Steps | Expected |
+|---|---|---|
+| S10 | Quiet Serial session. Kill `make shell` hard: `kill -9` on the `shell.py` process from another window. | After about 10 s: `[no answer from the computer: is make shell still running?]` on the calculator, once. The Cardputer's log says "computer: no answer". |
+| S11 | Then run `make shell` again. | `[the computer is answering again]`, the screen is reset and the new shell's prompt appears. It works. |
+| S12 | Quiet Serial session, close the terminal window that runs `make shell`. | As S10. |
+| S13 | Quiet Serial session, put the Mac to sleep for a minute (the ESP32 needs its own power for this: the Cardputer on battery). Wake it. | As S10 while asleep. On waking, `make shell` carries on and the calculator says the computer is answering again. If `make shell` did not survive the sleep, note what it printed. |
+| S14 | Quiet Serial session, leave it for 5 minutes. | No message: `make shell` answers every question. |
+| S15 | Serial session without `make shell` ever started since the ESP32 powered up (monitor mode). Wait 20 s. | No message: the ESP32 asks only a paced host. |
+| S16 | Start `make shell`, then end it normally (Ctrl-C). Stay in the Serial session 20 s. | `[session ended]`, then no further message: the ESP32 is back in monitor mode. |
+
+### The ESP32's port away
+
+| ID | Steps | Expected |
+|---|---|---|
+| S20 | `make shell` running, unplug the ESP32's USB cable (Stamp S3: it powers off). | `make shell` prints that the port went away and keeps running; no traceback. The calculator shows its banner. |
+| S21 | Plug the USB cable back. | `make shell` prints that the port is back. After the ESP32 has started and the calculator is in a Serial session again, `echo ok` works; Ctrl-L redraws the prompt. |
+| S22 | Cardputer on battery: unplug its USB cable with `make shell` running, wait 10 s, plug it back. | `make shell` says the port went away and is back. The calculator shows the no-answer line from the computer while it is out, and the answering-again line once it is back. The session carries on without restarting. |
+| S23 | With the port gone, run `yes` in the shell for a few seconds via `--mirror` (or anything that prints a lot), then Ctrl-C it. | `make shell` stays responsive and does not grow without limit: the command is paused once its output piles up. |
+| S24 | With the port gone, exit the shell (`exit`, typed in the `--mirror` window). | `make shell` ends at once instead of waiting for the port. |
+| S25 | Start `make shell` with the ESP32 unplugged. | "No ESP32 found", as before. |
+
+### Old and new together
+
+| ID | Steps | Expected |
+|---|---|---|
+| S30 | New `shell.py`, old sketch on the ESP32: `printf 'a\x1eb\n'`. | `ab`: the old sketch passes `1E 'e'` on as it is, and the calculator drops it as a mark and a letter that is not an answer. A real `0x1E` is lost, nothing else. |
 
 ## Recording a run
 

@@ -34,7 +34,10 @@
  *        falls in the output, and leaves everything else alone.
  *   'p'  a screenshot: the 3840 bytes of the calculator's screen follow, as
  *        they are. It leaves the backend alone too. With a computer attached
- *        (paced raw mode, below) they are passed on as 0x1E 'p' and the bytes. * A real 0x1E byte from the calculator arrives doubled.
+ *        (paced raw mode, below) they are passed on as 0x1E 'p' and the bytes.
+ * A real 0x1E byte from the calculator arrives doubled. A real 0x1E in the
+ * session's output (from SSH or the serial port) goes to the calculator
+ * doubled too, so it is never taken for the start of an answer.
  *
  * Serial has two modes:
  *   monitor (at power-up)  for the Serial Monitor. A typed line goes to the
@@ -55,7 +58,16 @@
  * the ESP32 drops serial bytes it has no room for, so the host may only have
  * a small window of bytes outstanding. For every ACK_EVERY bytes passed on
  * (or given up on) the sketch sends 0x1E 'a'. A real 0x1E from the calculator
- * is sent twice.
+ * is sent twice. The host sends a real 0x1E as 0x1E 'e', so that three marks
+ * in a row only ever start a control line; 'e' bytes count as one for the
+ * acknowledgements. Its bytes are left unread while the calculator is not in
+ * a Serial session, or has not been heard from for HEARD_MS: the host then
+ * waits, and nothing it prints is lost.
+ *
+ * In a Serial session the paced host is asked whether it is there, with
+ * 0x1E 'k', when it has been quiet for HOST_ASK_MS, and answers 0x1E 'k'.
+ * After HOST_LOST_MS without a byte from it the calculator is told, and told
+ * again when the host is back.
  *
  * Serial Monitor: 115200 baud, newline line ending.
  * Needs TiLink.h / TiLink.cpp and Ssh.h / Ssh.cpp in the same folder, and the
@@ -110,6 +122,12 @@ uint8_t marksSeen = 0;
 bool inControlLine = false;
 String controlLine;
 
+// Whether the paced host is still there, see the top of the file.
+const uint32_t HOST_ASK_MS = 3000;
+const uint32_t HOST_LOST_MS = 10000;
+uint32_t hostHeardMs = 0, hostAskedMs = 0;
+bool hostLost = false;  // the calculator has been told
+
 // Where the calculator's session goes. Set by the calculator's commands,
 // which are queued while bytes are being moved and run from loop().
 enum Backend : uint8_t { BACKEND_NONE, BACKEND_SERIAL, BACKEND_SSH };
@@ -118,6 +136,7 @@ bool markFromCalc = false;
 char pendingCommands[8];
 uint8_t pendingCount = 0;
 bool pingAsked = false;  // the calculator's 'y', answered by answerPing()
+bool answerHeld = false; // a doubled 0x1E is half sent: no answer may go between
 char bootId[2];          // in the answer: new at every power-up
 
 // While a question is being asked on the calculator, its keys are kept here
@@ -325,12 +344,22 @@ bool sendText(const char *s) {
 // meanwhile, and that waits for the next call.
 void answerPing() {
   static bool answering = false;
-  if (!pingAsked || answering || shotLeft) return;
+  if (!pingAsked || answering || answerHeld || shotLeft) return;
   answering = true;
   pingAsked = false;
   const char answer[] = {(char)CONTROL_MARK, 'y', bootId[0], bootId[1], '\n', 0};
   sendText(answer);  // stops at a dropped byte, as when the link went away meanwhile
   answering = false;
+}
+
+// A byte of the session's output, from SSH or the serial port. A real 0x1E
+// goes twice, which the calculator reads as one byte and not as an answer.
+bool sendDataToCalc(uint8_t b) {
+  if (b != CONTROL_MARK) return sendToCalc(b);
+  answerHeld = true;
+  bool sent = sendToCalc(b) && sendToCalc(b);
+  answerHeld = false;
+  return sent;
 }
 
 // ---------- the calculator's commands ----------
@@ -872,7 +901,7 @@ void pumpSsh() {
   uint8_t buf[64];
   int n = Ssh::read(buf, sizeof(buf));
   for (int i = 0; i < n; i++) {
-    if (!sendToCalc(buf[i])) break;
+    if (!sendDataToCalc(buf[i])) break;
   }
   if (n < 0) {
     Display::log("SSH closed by the host");
@@ -997,7 +1026,7 @@ void handleControl(const String &word) {
 
 void handleSerialByte(char c) {
   if (rawMode) {
-    sendToCalc((uint8_t)c);
+    sendDataToCalc((uint8_t)c);
     if (paced && ++unacked == ACK_EVERY) {
       unacked = 0;
       Serial.write(CONTROL_MARK);
@@ -1011,15 +1040,57 @@ void handleSerialByte(char c) {
   }
 }
 
+// A paced host is made to wait while the calculator is not in a Serial
+// session, or is not taking what is sent: its bytes stay unread, so nothing
+// it prints is lost.
+bool hostReadable() {
+  if (!(rawMode && paced)) return true;
+  return backend == BACKEND_SERIAL && heardOnce && millis() - lastHeardMs < HEARD_MS;
+}
+
+// Asks the paced host whether it is there, and tells the calculator when it
+// stops answering. Its silence counts only while its bytes are being read.
+void watchHost() {
+  uint32_t now = millis();
+  if (!(rawMode && paced && backend == BACKEND_SERIAL) || !hostReadable()) {
+    hostHeardMs = hostAskedMs = now;
+    if (backend != BACKEND_SERIAL) hostLost = false;
+    return;
+  }
+  // Once it is lost, asking stops: with nothing reading the port, writes to
+  // it can stall. A new shell.py speaks first anyway.
+  if (!hostLost && now - hostHeardMs >= HOST_ASK_MS && now - hostAskedMs >= HOST_ASK_MS) {
+    Serial.write(CONTROL_MARK);
+    Serial.write('k');
+    hostAskedMs = now;
+  }
+  if (!hostLost && now - hostHeardMs >= HOST_LOST_MS) {
+    hostLost = true;
+    Display::log("computer: no answer");
+    sendText("\r\n");
+    sayToCalc("[no answer from the computer: is make shell still running?]");
+  }
+}
+
+// The paced host's 0x1E and a letter: a real 0x1E, or its answer to 'k'.
+void handleHostCommand(char c) {
+  if (c == 'e') handleSerialByte((char)CONTROL_MARK);
+}
+
 void loop() {
   pumpFromCalc();
   runPendingCommands();
   if (backend == BACKEND_SSH) pumpSsh();
+  watchHost();
 
-  // A paced host is made to wait while the calculator is not in a Serial
-  // session: its bytes stay unread, so nothing it prints is lost.
-  while (!(rawMode && paced && backend != BACKEND_SERIAL) && Serial.available()) {
+  while (hostReadable() && Serial.available()) {
     char c = Serial.read();
+    hostHeardMs = millis();
+    if (hostLost) {
+      hostLost = false;
+      Display::log("computer: answering again");
+      sayToCalc("[the computer is answering again]");
+    }
     if (inControlLine) {
       if (c == '\n') {
         handleControl(controlLine);
@@ -1033,6 +1104,9 @@ void loop() {
         inControlLine = true;
         controlLine = "";
       }
+    } else if (marksSeen == 1 && rawMode && paced) {
+      marksSeen = 0;
+      handleHostCommand(c);
     } else {
       // Marks that turned out to be ordinary data are passed on.
       for (; marksSeen; marksSeen--) handleSerialByte((char)CONTROL_MARK);
