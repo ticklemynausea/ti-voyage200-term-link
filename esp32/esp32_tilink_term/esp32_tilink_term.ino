@@ -113,6 +113,14 @@ bool linkDown = false;  // both lines held low: calculator off or half plugged
 const uint32_t HEARD_MS = 5000;
 uint32_t lastHeardMs = 0;
 bool heardOnce = false;
+
+bool calcHeard() {
+  return heardOnce && millis() - lastHeardMs < HEARD_MS;
+}
+
+// How long a byte for a calculator not heard from lately waits for it to
+// speak: its next question is due within 3 s.
+const uint32_t CALC_WAIT_MS = 4000;
 uint32_t toCalc = 0, fromCalc = 0, dropped = 0, retries = 0;
 String line;
 
@@ -195,7 +203,7 @@ void showStatus() {
   s.asking = asking;
   s.computerAttached = rawMode;
   s.calcPresent = !linkDown;
-  s.calcHeard = heardOnce && millis() - lastHeardMs < HEARD_MS;
+  s.calcHeard = calcHeard();
   s.linesIdle = ti.lineIdle();
   s.toCalc = toCalc;
   s.fromCalc = fromCalc;
@@ -311,8 +319,22 @@ void pumpFromCalc() {
 // calculator does not start taking ours (busy drawing, or it began a byte of
 // its own at the same moment) the byte is retried, which is safe as long as
 // no bit of it went through.
+//
+// Nothing is started while the calculator has not been heard from lately: it
+// may be unplugged, and a byte under way when the cable goes back in can
+// slip by a bit, which garbles everything after it until the calculator's
+// link is reset. Its own next byte starts cleanly, so the byte waits for that.
 bool sendToCalc(uint8_t b) {
   uint32_t t0 = millis();
+  while (!calcHeard()) {
+    pumpFromCalc();
+    if (millis() - t0 > CALC_WAIT_MS) {
+      dropped++;
+      return false;
+    }
+    delay(1);
+  }
+  t0 = millis();
   for (;;) {
     pumpFromCalc();
     if (shotLeft) continue;  // a screenshot is arriving: the link is the calculator's
@@ -1045,7 +1067,7 @@ void handleSerialByte(char c) {
 // it prints is lost.
 bool hostReadable() {
   if (!(rawMode && paced)) return true;
-  return backend == BACKEND_SERIAL && heardOnce && millis() - lastHeardMs < HEARD_MS;
+  return backend == BACKEND_SERIAL && calcHeard();
 }
 
 // Asks the paced host whether it is there, and tells the calculator when it
@@ -1080,7 +1102,9 @@ void handleHostCommand(char c) {
 void loop() {
   pumpFromCalc();
   runPendingCommands();
-  if (backend == BACKEND_SSH) pumpSsh();
+  // Like the serial port's, the SSH output waits while the calculator is away:
+  // unread, it holds the host back, and nothing is lost.
+  if (backend == BACKEND_SSH && calcHeard()) pumpSsh();
   watchHost();
 
   while (hostReadable() && Serial.available()) {

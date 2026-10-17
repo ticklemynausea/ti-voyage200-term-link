@@ -109,12 +109,25 @@ answer takes 15 s to fail, so the row can show for a few seconds then.
 Whether the SSH host is still there is a different question, which this
 does not answer.
 
+While the ESP32 has not heard from the calculator for 5 s, it sends it
+nothing, and the next byte waits until the calculator speaks again: it asks
+something every 3 s in a menu or a quiet session. A byte under way when
+the cable goes back in can slip by a bit, and then everything after it
+reads wrong. The session's output waits meanwhile, SSH's as well as
+Serial's: unread, it holds the host back, so nothing is lost when the
+cable is pulled, or while the symbol strip is open.
+
+If a slip happens anyway, the calculator's side of the link stays out of
+step, and the menu shows `ESP32: no answer` with the ESP32 still there.
+After three unanswered questions the menu resets the calculator's side of
+the link, every 3 s until it has an answer, which is what leaving `term()`
+and starting it again would do.
+
 In a Serial session with `make shell`, three more cases are looked after:
 
-- **The calculator away.** While the ESP32 has not heard from the
-  calculator for 5 s, it stops reading what `make shell` sends. The script
-  waits and the command is paused once its output piles up, so nothing is
-  lost; it carries on when the cable is back.
+- **The calculator away.** As above: the ESP32 stops reading what
+  `make shell` sends. The script waits and the command is paused once its
+  output piles up, so nothing is lost; it carries on when the cable is back.
 - **The computer away.** If `make shell` was killed, its window closed or
   the computer went to sleep, the ESP32 hears nothing from it for 10 s and
   the calculator shows `[no answer from the computer: is make shell still
