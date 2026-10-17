@@ -141,6 +141,45 @@ session, unless it says otherwise.
 |---|---|---|
 | S30 | New `shell.py`, old sketch on the ESP32: `printf 'a\x1eb\n'`. | `ab`: the old sketch passes `1E 'e'` on as it is, and the calculator drops it as a mark and a letter that is not an answer. A real `0x1E` is lost, nothing else. |
 
+## Soak tests: long, heavy streams
+
+The hardest cases, so they come last: run them once everything above
+passes. They check that the link stays sound with the link full for
+minutes on end. That covers the doubled `0x1E` bytes, the `1E 'e'` escapes
+and the window's acknowledgements under load, and pings and answers
+meeting a busy link.
+
+The link carries about 3 KB/s, so 1 MB takes about six minutes. Keep the
+Cardputer's link page open (or note `/stats` in the Serial Monitor
+afterwards, for an ESP32 without a screen). In every test, unless it says
+otherwise, these must hold throughout:
+
+- no banner, no restart line, no line about the computer
+- the calculator keeps drawing: the output never stops for more than a
+  second or two
+- afterwards, Ctrl-C (or `q`) stops the program within a few seconds. A key
+  pressed during a stream can collide with the ESP32's bytes and be lost
+  (see "Collisions" under Findings in [terminal.md](terminal.md)), so press
+  it again if nothing happens
+- afterwards, `echo ok` works and the prompt is where it should be (run
+  `reset` first after binary output)
+- the link page's "dropped" count does not go up
+
+| ID | Steps | Expected |
+|---|---|---|
+| K01 | SSH: `yes` for 10 minutes, then Ctrl-C. | As above. |
+| K02 | SSH: `head -c 1000000 /dev/urandom`, to the end (about 6 minutes). Then `reset`. | As above. The random bytes contain thousands of `0x1E`: none of them ends the session, shows the restart line or leaves stray answer text. The calculator does not hang on the escape sequences that random bytes make. |
+| K03 | Serial with `make shell`: `yes` for 10 minutes, then Ctrl-C. Check `ps -o rss= -p <pid of shell.py>` at the start and the end. | As above. The output does not slow down over time, which would point to the window shrinking. `shell.py`'s memory stays about the same. |
+| K04 | Serial with `make shell`: `head -c 1000000 /dev/urandom`, to the end. Then `reset`. | As above. The ESP32 stays in raw mode: no monitor text shows up as keys or on the screen. The output keeps its speed to the end. This shows that the `1E 'e'` escapes and the acknowledgements stay in step. |
+| K05 | Serial with `make shell`: `seq 1 200000`, to the end. | As above. The last lines read `199999`, `200000`. |
+| K06 | SSH: `yes`, and press 2nd+APPS five times, a few seconds apart, with `make screenshots` attached. | Five complete PNG files, each showing lines of `y`. The stream carries on after each one. |
+| K07 | Both ways at once. In SSH run `cat`, then hold down a letter key for 60 s (auto-repeat), so that every key is echoed back while more are typed. | The session survives and `cat` is still echoing at the end. Ctrl-D ends it. Some keys may be lost to collisions: note roughly how many letters came back for 60 s of holding, for comparison between runs. |
+| K08 | Serial with `make shell`: `seq 1 100000`. Open the CHAR strip (2nd + plus) for 20 s, then close it with any key. | The output carries on where it stopped, **without a gap**: the ESP32 stopped reading `make shell` while the calculator was not taking bytes. |
+| K09 | SSH: the same as K08. | Known gap: SSH output is dropped while the calculator is not taking bytes, so numbers are missing after the strip closes. The session must carry on, without a banner or a stall. Note how many numbers were lost. |
+| K10 | Serial with `make shell`: `head -c 1000000 /dev/urandom`. Pull the calculator's cable for 30 s half way through, then plug it back. | Banner while it is out. After plugging back the stream carries on at full speed to the end; the ESP32 is still in raw mode, and the output after `reset` and `echo ok` is clean. |
+| K11 | Leave a quiet SSH session for 30 minutes (about 600 pings), then run `seq 1 3000`. | No banner or message in the 30 minutes. The output then runs as in L03. |
+| K12 | Leave a Serial session with `make shell` running `while true; do date; sleep 60; done` for several hours, overnight if possible. | One date a minute the whole time, none missing. No banner or message. `shell.py`'s memory is about the same at the end as after the first minute. |
+
 ## Recording a run
 
 Write down the date, the commit (from the menu's first line), the board,
