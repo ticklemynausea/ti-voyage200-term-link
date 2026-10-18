@@ -26,7 +26,7 @@ menu you open:
   hosts and four Wi-Fi networks, and can make a key of its own and copy it
   to a host, so no password has to be typed on the calculator.
 
-All the settings are made from the calculator's menus. 2nd + APPS sends the
+All the settings are made from the calculator's menus. diamond + APPS sends the
 calculator's screen to the computer as a screenshot.
 
 Programs confirmed to work on it:
@@ -48,7 +48,7 @@ Programs confirmed to work on it:
 | ![The terminal's menu](docs/pics/screenshot-menu.png) | ![Claude Code running in the terminal](docs/pics/screenshot-claude-code.png) |
 
 These two are screenshots: the calculator sends its own screen through the
-ESP32 when 2nd + APPS is pressed. The same two on the calculator:
+ESP32 when diamond + APPS is pressed. The same two on the calculator:
 
 | The menu | Claude Code in a session |
 |---|---|

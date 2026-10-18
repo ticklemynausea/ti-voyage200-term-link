@@ -6,7 +6,7 @@
 #                            (another command: make shell CMD=top)
 #                            (also show it here and type here: make shell MIRROR=1)
 #   make screenshots         attach to the ESP32 and run nothing: only save the
-#                            screens the calculator sends with 2nd + APPS, in
+#                            screens the calculator sends with diamond + APPS, in
 #                            screenshots/ (make shell saves them too)
 #   make link:test           run the link layer (link/) on this computer, over
 #                            a simulated line that garbles, drops and slips

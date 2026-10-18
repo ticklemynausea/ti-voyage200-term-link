@@ -14,7 +14,7 @@ term() on the calculator first.
 With --mirror the output is also copied to this window, and keys typed here
 go to the same shell, alongside the calculator's.
 
-2nd + APPS on the calculator sends its screen, from the menus and from any
+diamond + APPS on the calculator sends its screen, from the menus and from any
 session. While this script is attached it is saved as a PNG in screenshots/
 (--screenshots DIR), each pixel drawn --scale times as large (default 4).
 
@@ -241,7 +241,7 @@ def main():
         print(f"{' '.join(command)} is running on the calculator via {port}. {stop_key} here to stop.")
     else:
         print(f"Attached to {port}, running nothing. {stop_key} here to stop.")
-    print(f"2nd + APPS on the calculator saves its screen in {args.screenshots}/.")
+    print(f"diamond + APPS on the calculator saves its screen in {args.screenshots}/.")
     if keyboard is not None:
         keyboard_attrs = termios.tcgetattr(keyboard)
         tty.setraw(keyboard)

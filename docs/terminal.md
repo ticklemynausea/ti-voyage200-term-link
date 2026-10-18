@@ -309,7 +309,7 @@ cannot switch the mode behind its back.
 | ◆ + letter | Ctrl + letter (the keyboard has no Ctrl key) |
 | ◆ + space | Ctrl-Space (NUL, code 0) |
 | APPS | Tab, in one key (◆ + I is Tab too) |
-| ◆ + APPS | Shift-Tab (`ESC [ Z`), as 2nd + I |
+| 2nd + APPS | Shift-Tab (`ESC [ Z`), as 2nd + I |
 | CLEAR | Ctrl-U, which erases the line in the shell |
 | ◆ + CLEAR | Ctrl-L, after resetting this terminal as `ESC c` from the host would. For a screen left drawing lines or in reverse video by binary output, which Ctrl-L alone (◆ + L) only redraws in the same mess |
 | LN | Ctrl-R, which searches the shell's history |
@@ -341,7 +341,7 @@ cannot switch the mode behind its back.
 | F1 to F8 | the function keys |
 | ◆ + F1 to F4 | F9 to F12 |
 | 2nd + ESC (QUIT) | nothing: goes back to the menu. ◆ + ESC does the same |
-| 2nd + APPS | nothing: takes a [screenshot](#screenshots), in the menus too |
+| ◆ + APPS | nothing: takes a [screenshot](#screenshots), in the menus too |
 
 Any other key sends nothing. That covers the remaining TI-only characters,
 such as ≠ or é. The divide key types `/`.
@@ -423,7 +423,7 @@ tells whether the calculator has the latest copy.
 
 ## Screenshots
 
-2nd + APPS sends the calculator's screen to the computer: the real pixels,
+◆ + APPS sends the calculator's screen to the computer: the real pixels,
 240 x 128, of whatever `term()` is showing. It works in the menus, the help
 pages, the settings dialogs, with the symbol strip open, and in Serial and
 SSH sessions. It takes a second or two, during which the screen stands
@@ -491,8 +491,8 @@ This is about the screen only. The keyboard still types ASCII.
   changes nothing (2nd + F1 is F1, 268), while ◆ adds 8192 (◆ + F1 is 8460).
 - **The keys of the calculator's functions** are free in a session, and the
   program gives them terminal keys: MODE 266, CLEAR 263, APPS 265, LN 262,
-  SIN, COS and TAN 259 to 261. ◆ adds 8192 to each and 2nd adds 4096 to LN,
-  SIN, COS and TAN (2nd + APPS, 4361, is the screenshot key). 2nd + ^ is
+  SIN, COS and TAN 259 to 261. ◆ adds 8192 to each and 2nd adds 4096 to APPS,
+  LN, SIN, COS and TAN (◆ + APPS, 8457, is the screenshot key). 2nd + ^ is
   140, the π character.
 - **More of the calculator's keys arrive as its characters:** (−) 173, θ
   136, 2nd + 1 (EE) 149, 2nd + D (°) 176, 2nd + F (∠) 159, 2nd + J (∞)

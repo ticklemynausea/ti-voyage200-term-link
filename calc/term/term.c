@@ -16,7 +16,7 @@
 //   APPS, CLEAR, LN    Tab, Ctrl-U, Ctrl-R
 //   SIN, COS, TAN      tmux: previous window, next window, the prefix
 //   2nd + SIN/COS/TAN  tmux: window list, last window, new window
-//   diamond + APPS     Shift-Tab; diamond + CLEAR resets, then Ctrl-L
+//   2nd + APPS         Shift-Tab; diamond + CLEAR resets, then Ctrl-L
 //   2nd / diamond + LN Ctrl-_ (undo) / Ctrl-backslash
 //   diamond + MODE     Ctrl-]
 //   (-)                types -
@@ -33,7 +33,7 @@
 //   2nd + backspace    Insert
 //   2nd + plus (CHAR)  symbols the keyboard lacks: pick one by its letter
 //   2nd + ESC (QUIT)   back to the menu; diamond + ESC does the same
-//   2nd + APPS         sends the screen to the computer, as a screenshot
+//   diamond + APPS     sends the screen to the computer, as a screenshot
 
 #define USE_V200
 #define MIN_AMS 207
@@ -55,7 +55,7 @@
 
 #define KEY_2ND 4096
 #define KEY_QUIT (KEY_2ND + KEY_ESC)
-#define KEY_SCREENSHOT (KEY_2ND + KEY_APPS)
+#define KEY_SCREENSHOT (KEY_DIAMOND + KEY_APPS)
 // 2nd + I arrives as the character it types on the calculator, the
 // imaginary i. It stands in for Shift-Tab, next to diamond + I for Tab.
 #define KEY_BACK_TAB 151
@@ -964,7 +964,7 @@ static void handleKey(unsigned short key)
     keySend(&c, 1);
   } else if (key == KEY_APPS) {
     keySend("\t", 1);
-  } else if (key == KEY_DIAMOND + KEY_APPS) {
+  } else if (key == KEY_2ND + KEY_APPS) {
     keySend("\x1B[Z", 3);  // Shift-Tab, next to Tab
   } else if (key == KEY_CLEAR) {
     keySend("\x15", 1);  // Ctrl-U: erases the line in the shell

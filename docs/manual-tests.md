@@ -40,12 +40,12 @@ anything within a couple of seconds of them is right.
 | L07 |  | SSH to a host that asks for a password (no key). Wait 20 s at the prompt, then type it. | The login works. No banner while waiting. |
 | L08 | pass | Main menu F3 Wi-Fi → choose a network that is out of range (or a stored one with a wrong password). | "Joining Wi-Fi ..." for up to 20 s, then "Wi-Fi: no connection". No banner at any point: the ESP32 answers while it joins. |
 | L09 | pass | SSH to a host address that does not answer (an unused address on the LAN). | "Connecting to ..." then "Connection failed" after about 15 s. The banner may show for the last 3 s or so, and goes away when the failure is printed. Note what happened. |
-| L10 | pass | Quiet SSH session for 5 s, then 2nd+APPS with `make screenshots` attached. | The screenshot is saved and shows the session without a banner. The session carries on, no stray characters. |
+| L10 | pass | Quiet SSH session for 5 s, then ◆+APPS with `make screenshots` attached. | The screenshot is saved and shows the session without a banner. The session carries on, no stray characters. |
 | L11 |  | In the menus: wait on the main menu, the settings menu, the SSH host list. | Wi-Fi status as before, host and network lists complete and correct. A late `'y'` answer from the end of a session does not appear anywhere. |
 | L12 |  | Debug → Local echo, and Debug → Key codes, each for 20 s without typing. | No banner: these sessions do not use the link. |
 | L13 |  | SSH: `yes`, and after a few seconds press 2nd+ESC. | The menu comes back within a second or two, while the output is still pouring in. Before, the keys were only read once the output paused. |
 | L14 |  | SSH: `yes`, then Ctrl-C (◆ + C). | Nothing is lost to a collision any more: `yes` stops within a few seconds of one press. Note it if a second press was needed. |
-| L15 |  | SSH: `seq 1 100000`, and press 2nd+APPS during it, with `make screenshots` attached. | The screenshot is saved, complete, showing numbers. The numbers carry on afterwards. |
+| L15 |  | SSH: `seq 1 100000`, and press ◆+APPS during it, with `make screenshots` attached. | The screenshot is saved, complete, showing numbers. The numbers carry on afterwards. |
 
 ### The cable is pulled
 
@@ -163,7 +163,7 @@ The OS's 2nd, shift and diamond indicators are kept off the screen while
 | I02 | pass | SSH session in tmux: press 2nd, diamond and shift, each followed by a key. | The tmux bar stays whole. |
 | I03 | pass | SSH session: shift lock on, type a few letters, shift lock off. | Capitals while it is on; no indicator, no hole. |
 | I04 |  | With text on the bottom row and 2nd armed, let the screen scroll (`ls -l`). | No stray pixels in the text. |
-| I05 |  | 2nd + APPS on the main menu. | The screenshot's status row has no white block. |
+| I05 |  | ◆ + APPS on the main menu. | The screenshot's status row has no white block. |
 | I06 | pass | Keys still work: 2nd + ESC, diamond + C, 2nd + divide (`]`), shift + a letter, a held key repeating. | All as before. |
 | I07 | pass | Quit `term`, then press 2nd on the Home screen. | The OS's own indicator shows there as usual: the handler was taken out. |
 
@@ -191,7 +191,7 @@ press the keys, then ◆ + D. Run them in bash (or zsh) where a step says so.
 | X15 |  | bash: MODE, `.`, as in X01. | The last argument is put in, as with shift + Hand. |
 | X16 |  | tmux with two windows: COS, SIN, then TAN, `c`. | Next window, previous window, then a new one. |
 | X17 |  | `cat -v`: ◆ + ^. | `^^` |
-| X18 |  | `cat -v`: ◆ + APPS, ◆ + MODE, 2nd + LN, ◆ + LN. | `^[[Z^]^_^\` (◆ + LN may end `cat` instead: Ctrl-\ quits it) |
+| X18 |  | `cat -v`: 2nd + APPS, ◆ + MODE, 2nd + LN, ◆ + LN. | `^[[Z^]^_^\` (◆ + LN may end `cat` instead: Ctrl-\ quits it) |
 | X19 |  | bash: type `one two`, then 2nd + LN. | The last word typed is undone. |
 | X20 |  | `cat /bin/ls` or `head -c 2000 /dev/urandom`, then ◆ + CLEAR. | The terminal is reset and the shell redraws its prompt; what is typed next looks right. |
 | X21 |  | tmux: 2nd + TAN, 2nd + TAN, then 2nd + SIN, ESC; 2nd + COS. | Two new windows; the list opens and closes; then the window before. |
@@ -234,7 +234,7 @@ otherwise, these must hold throughout:
 | K03 |  | Serial with `make shell`: `yes` for 10 minutes, then Ctrl-C. Check `ps -o rss= -p <pid of shell.py>` at the start and the end. | As above. The output does not slow down over time, which would point to the window shrinking. `shell.py`'s memory stays about the same. |
 | K04 |  | Serial with `make shell`: `head -c 1000000 /dev/urandom`, to the end. Then `reset`. | As above. The ESP32 stays in raw mode: no monitor text shows up as keys or on the screen. The output keeps its speed to the end. This shows that the `1E 'e'` escapes and the acknowledgements stay in step. |
 | K05 |  | Serial with `make shell`: `seq 1 200000`, to the end. | As above. The last lines read `199999`, `200000`. |
-| K06 |  | SSH: `yes`, and press 2nd+APPS five times, a few seconds apart, with `make screenshots` attached. | Five complete PNG files, each showing lines of `y`. The stream carries on after each one. |
+| K06 |  | SSH: `yes`, and press ◆+APPS five times, a few seconds apart, with `make screenshots` attached. | Five complete PNG files, each showing lines of `y`. The stream carries on after each one. |
 | K07 |  | Both ways at once. In SSH run `cat`, then hold down a letter key for 60 s (auto-repeat), so that every key is echoed back while more are typed. | The session survives and `cat` is still echoing at the end. Ctrl-D ends it. No key is lost: compare the letters that came back with the auto-repeat rate times 60 s. |
 | K08 |  | Serial with `make shell`: `seq 1 100000`. Open the CHAR strip (2nd + plus) for 20 s, then close it with any key. | The output carries on where it stopped, **without a gap**: the ESP32 stopped reading `make shell` while the calculator was not taking bytes. |
 | K09 |  | SSH: the same as K08. | The same: without a gap. The ESP32 stopped reading the SSH output while the calculator was not taking bytes. |

@@ -16,14 +16,14 @@ Hand + arrows      Ctrl + arrows (shift + arrows: Shift)
 2nd + plus         a strip of symbols the keyboard lacks
 F1 to F8           the function keys; diamond + F1 to F4
                    are F9 to F12
-2nd + APPS         screenshot, saved on the computer
+diamond + APPS     screenshot, saved on the computer
 2nd + backspace    Insert; diamond + backspace: Delete
 The divide key types /   (-) types - too
 More keys on the next page, then the keys for tmux.
 ----
 MORE KEYS
 
-diamond + APPS     Shift-Tab
+2nd + APPS         Shift-Tab
 diamond + CLEAR    resets this screen, then Ctrl-L
 diamond + MODE     Ctrl-]
 2nd + LN           Ctrl-_ (undo)
