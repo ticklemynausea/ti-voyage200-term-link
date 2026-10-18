@@ -20,8 +20,8 @@ const uint32_t KEYS_MS = 50;
 const uint32_t RATE_MS = 1000;
 const uint32_t BATTERY_MS = 5000;
 
-const int PAGES = 4;
-const char *const PAGE_NAMES[PAGES] = {"STATUS", "LINK", "LOG", "BUILD"};
+const int PAGES = 5;
+const char *const PAGE_NAMES[PAGES] = {"STATUS", "LINK", "MEMORY", "LOG", "BUILD"};
 
 // The page is text: up to MAX_LINES lines, each in the small font (40
 // columns) or the same font doubled (20 columns). A page is only pushed to
@@ -166,6 +166,63 @@ void linkPage(const Status &s) {
   add(1, TFT_LIGHTGREY, "last byte %-12s uptime %s", last, up);
 }
 
+// A number of bytes in at most 9 characters: B, then KB and MB of 1024.
+void byteSize(char *out, size_t n, uint32_t bytes) {
+  if (bytes < 1024) snprintf(out, n, "%lu B", (unsigned long)bytes);
+  else if (bytes < 1024 * 1024) snprintf(out, n, "%lu.%lu KB", (unsigned long)(bytes / 1024), (unsigned long)(bytes % 1024 * 10 / 1024));
+  else snprintf(out, n, "%lu.%02lu MB", (unsigned long)(bytes >> 20), (unsigned long)((bytes & 0xFFFFF) * 100 >> 20));
+}
+
+// A row of the memory page: a label, an amount and a note of up to 17
+// characters, which may hold a second amount.
+void sizeRow(uint16_t colour, const char *label, uint32_t bytes, const char *note, ...) {
+  char amount[12], text[18];
+  byteSize(amount, sizeof(amount), bytes);
+  va_list args;
+  va_start(args, note);
+  vsnprintf(text, sizeof(text), note, args);
+  va_end(args);
+  add(1, colour, " %-11s%9s  %s", label, amount, text);
+}
+
+// The ESP32's memory as it is now, and the calculator's from its last MEM
+// frame. "least" is the lowest it has been since power-up; for the stack,
+// that of the loop task, where libssh runs. The sketch's size is read once:
+// it takes a while.
+void memoryPage(const Status &s) {
+  static uint32_t sketch, sketchSpace;
+  if (!sketch) {
+    sketch = ESP.getSketchSize();
+    sketchSpace = ESP.getFreeSketchSpace();
+  }
+  char total[12];
+
+  add(1, TFT_WHITE, "ESP32");
+  byteSize(total, sizeof(total), ESP.getHeapSize());
+  uint32_t heap = ESP.getFreeHeap(), least = ESP.getMinFreeHeap();
+  sizeRow(heap < 20 * 1024 ? TFT_ORANGE : TFT_LIGHTGREY, "heap free", heap, "of %s", total);
+  sizeRow(least < 20 * 1024 ? TFT_ORANGE : TFT_LIGHTGREY, "least heap", least, "since power-up");
+  sizeRow(TFT_LIGHTGREY, "largest", ESP.getMaxAllocHeap(), "in one block");
+  byteSize(total, sizeof(total), getArduinoLoopTaskStackSize());
+  uint32_t stack = uxTaskGetStackHighWaterMark(nullptr);
+  sizeRow(stack < 4 * 1024 ? TFT_ORANGE : TFT_LIGHTGREY, "least stack", stack, "of %s", total);
+  byteSize(total, sizeof(total), sketchSpace);
+  sizeRow(TFT_LIGHTGREY, "sketch", sketch, "of %s flash", total);
+  add(1, TFT_BLACK, "");
+
+  const Status::CalcMemory &c = s.calcMemory;
+  if (!c.known) {
+    add(1, TFT_WHITE, "calculator   not heard from yet");
+    return;
+  }
+  uint32_t ago = (millis() - c.at) / 1000;
+  add(1, TFT_WHITE, "calculator   %lu s ago", (unsigned long)ago);
+  sizeRow(c.heap < 10 * 1024 ? TFT_ORANGE : TFT_LIGHTGREY, "RAM free", c.heap, "%u handles", c.handles);
+  sizeRow(TFT_LIGHTGREY, "archive", c.archive, "free");
+  sizeRow(TFT_LIGHTGREY, "", c.archive + c.archiveGc, "free after GC");
+  sizeRow(TFT_LIGHTGREY, "archived", c.archived, "in use");
+}
+
 void logPage() {
   if (!logCount) add(1, TFT_LIGHTGREY, "nothing yet");
   for (int i = 0; i < logCount; i++) {
@@ -271,7 +328,8 @@ void update(const Status &s) {
   add(1, TFT_WHITE, "%-6s %d/%d                  battery %3d%%", PAGE_NAMES[page], page + 1, PAGES, battery);
   if (page == 0) statusPage(s);
   else if (page == 1) linkPage(s);
-  else if (page == 2) logPage();
+  else if (page == 2) memoryPage(s);
+  else if (page == 3) logPage();
   else buildPage();
 
   if (forced || lineCount != drawnCount || memcmp(lines, drawn, sizeof(Line) * lineCount)) {

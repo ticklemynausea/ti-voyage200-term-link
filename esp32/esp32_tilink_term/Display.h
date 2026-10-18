@@ -1,8 +1,8 @@
 /*
  * Display.h - status pages on the M5Stack Cardputer's screen
  *
- * Four pages (status, link, log, build), switched from the Cardputer's
- * keyboard: any key goes to the next page, 1 to 4 jump to one. Nothing
+ * Five pages (status, link, memory, log, build), switched from the
+ * Cardputer's keyboard: any key goes to the next page, 1 to 5 jump to one. Nothing
  * typed there is sent anywhere. The G0 button steps the backlight through
  * 0, 25, 50, 75 and 100%.
  *
@@ -33,6 +33,16 @@ struct Status {
   Count bad;               // frames from the calculator that failed their check
   Count dropped;           // output given up on, never sent
   uint32_t handshakeErrors;  // bytes whose bit handshake failed
+  // The calculator's free memory, from the last MEM frame it sent.
+  struct CalcMemory {
+    bool known;
+    uint32_t at;         // millis() when it came
+    uint32_t heap;       // free RAM, all blocks together
+    uint16_t handles;    // free handles
+    uint32_t archive;    // free archive memory
+    uint32_t archiveGc;  // archive memory a garbage collection would free
+    uint32_t archived;   // archive memory in use
+  } calcMemory;
   String sshTarget;       // user@host, empty when not set up
   String wifiName;        // empty when not set up
   bool wifiUp;

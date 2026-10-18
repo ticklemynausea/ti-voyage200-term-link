@@ -42,7 +42,7 @@ its pins from the board it is built for:
 |---|---|---|
 | Calculator connects to | G1 and G5, on jumper wires | the Grove port (G2 and G1) |
 | Power | USB | its battery, or USB |
-| Screen | none | status pages: mode, Wi-Fi, link, log |
+| Screen | none | status pages: mode, Wi-Fi, link, memory, log |
 | Extra library | none | M5Cardputer |
 | Build and flash | `make esp32_stamps3:term:flash` | `make esp32_cardputer:term:flash`, or `make esp32_cardputer:term:build` for a file that M5 Launcher installs |
 | Wiring | [hardware.md](hardware.md#wiring-stamp-s3) | [hardware.md](hardware.md#m5stack-cardputer) |

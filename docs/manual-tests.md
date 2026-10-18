@@ -140,6 +140,18 @@ session, unless it says otherwise.
 | S24 |  | With the port gone, exit the shell (`exit`, typed in the `--mirror` window). | `make shell` ends at once instead of waiting for the port. |
 | S25 |  | Start `make shell` with the ESP32 unplugged. | "No ESP32 found", as before. |
 
+## The Cardputer's memory page
+
+Press `3` on the Cardputer for the memory page. The calculator sends its
+numbers every 5 s while `term` runs.
+
+| ID | Result | Steps | Expected |
+|---|---|---|---|
+| M01 |  | Start `term` and stay in the main menu. Note the calculator's free RAM and archive on its own MEM screen first (2nd + 6, before starting `term`). | The ESP32 rows are filled and none is orange. The calculator's "s ago" counts up to about 5 and back to 0. Its "RAM free" is below the MEM screen's by about the size of `term` and a little more, its "archive" free and "archived" match MEM's to within a few KB. |
+| M02 |  | SSH session running `yes` for a minute. | "s ago" still goes no higher than about 5: the reports wait for room but still get through. `yes` keeps its speed. |
+| M03 |  | Quit `term` (2nd+ESC in the menu), then wait 30 s. | "s ago" keeps growing; the numbers stay as they were. Start `term` again: back to at most 5 s. |
+| M04 |  | With `term` running, reset the ESP32. | The calculator's rows come back within a few seconds of the ESP32 starting, without waiting for the minute the archive takes. |
+
 ## Soak tests: long, heavy streams
 
 The hardest cases, so they come last: run them once everything above
@@ -162,6 +174,8 @@ otherwise, these must hold throughout:
   `reset` first after binary output)
 - the link page's "dropped" row stays at 0. Its "sent again", "bad" and
   "handshake" rows may go up: they count what the link layer put right
+- the memory page's "heap free" is back to about where it started once
+  the stream is over, and "least heap" stays above 20 KB
 
 | ID | Result | Steps | Expected |
 |---|---|---|---|

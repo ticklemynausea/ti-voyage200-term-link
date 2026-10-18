@@ -241,7 +241,7 @@ static short frame(tl_link *t, unsigned long now)
   ctl = t->rx[0];
   type = t->rx[1];
   if (crc != (unsigned short)(t->rx[t->rxLen - 2] | (t->rx[t->rxLen - 1] << 8)) ||
-      t->rx[2] != len || (ctl & 0x80) || !type || (type > TL_PING && type < TL_DATA) || type > TL_SHOT) {
+      t->rx[2] != len || (ctl & 0x80) || !type || (type > TL_PING && type < TL_DATA) || type > TL_LAST) {
     t->framesBad++;
     t->bytesBad += t->rxCount;
     return 0;

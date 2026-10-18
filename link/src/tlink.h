@@ -65,8 +65,18 @@ enum {
   TL_CMD,         /* calc -> ESP32: a command letter, and a slot for some */
   TL_STATUS,      /* ESP32 -> calc: '+' or '-' for Wi-Fi, and a line of text */
   TL_LIST,        /* ESP32 -> calc: list letter, entry number, entry text */
-  TL_SHOT         /* calc -> ESP32: piece number, then that piece of the screen */
+  TL_SHOT,        /* calc -> ESP32: piece number, then that piece of the screen */
+  TL_MEM,         /* calc -> ESP32: its free memory, see TL_MEM_SIZE */
+  TL_LAST = TL_MEM
 };
+
+/* TL_MEM's payload: unsigned numbers, least significant byte first. */
+#define TL_MEM_HEAP 0       /* 4 bytes: free RAM in the heap, all blocks together */
+#define TL_MEM_HANDLES 4    /* 2: free handles */
+#define TL_MEM_ARCHIVE 6    /* 4: free archive memory */
+#define TL_MEM_GC 10        /* 4: archive memory a garbage collection would free */
+#define TL_MEM_ARCHIVED 14  /* 4: archive memory in use */
+#define TL_MEM_SIZE 18
 
 enum { TL_INITIATOR, TL_RESPONDER };
 

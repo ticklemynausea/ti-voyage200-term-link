@@ -31,7 +31,9 @@
  * 'h', 'k' and 'i' carry the slot of the host, from 1, and 'j' that of the
  * network. SHOT frames carry a screenshot: the 3840 bytes of the
  * calculator's screen, in numbered pieces. With a computer attached (paced
- * raw mode, below) it is passed on as 0x1E 'p' and the bytes.
+ * raw mode, below) it is passed on as 0x1E 'p' and the bytes. MEM frames
+ * carry the calculator's free memory, every few seconds, for the
+ * Cardputer's memory page.
  *
  * The calculator starts the link with HELLO, which the answer carries the
  * ESP32's id in: two letters picked at power-up, by which the calculator
@@ -195,6 +197,8 @@ uint8_t shot[SHOT_BYTES];
 size_t shotLeft = 0;
 uint32_t shotLastMs = 0;
 
+Display::Status::CalcMemory calcMemory = {};
+
 // Pacing of raw mode, see the top of the file.
 const uint8_t ACK_EVERY = 32;
 bool paced = false;
@@ -222,6 +226,7 @@ void showStatus() {
   s.bad = {lk.bytesBad, lk.framesBad};
   s.dropped = {droppedBytes, droppedFrames};
   s.handshakeErrors = ti.errors;
+  s.calcMemory = calcMemory;
   uint8_t hostsSet = 0;
   for (const Host &h : hosts) hostsSet += h.isSet();
   if (backend == BACKEND_SSH) s.sshTarget = hostLabel(slot);
@@ -281,6 +286,22 @@ void takeShotPiece(const tl_frame &f) {
   if (!shotLeft) finishShot();
 }
 
+uint32_t takeLong(const uint8_t *p) {
+  return p[0] | p[1] << 8 | p[2] << 16 | (uint32_t)p[3] << 24;
+}
+
+// The calculator's free memory, for the Cardputer's memory page.
+void takeMemory(const tl_frame &f) {
+  if (f.len < TL_MEM_SIZE) return;
+  calcMemory.known = true;
+  calcMemory.at = millis();
+  calcMemory.heap = takeLong(f.data + TL_MEM_HEAP);
+  calcMemory.handles = f.data[TL_MEM_HANDLES] | f.data[TL_MEM_HANDLES + 1] << 8;
+  calcMemory.archive = takeLong(f.data + TL_MEM_ARCHIVE);
+  calcMemory.archiveGc = takeLong(f.data + TL_MEM_GC);
+  calcMemory.archived = takeLong(f.data + TL_MEM_ARCHIVED);
+}
+
 // A frame from the calculator, as the link layer hands it on.
 void takeFrame(short type) {
   const tl_frame &f = lk.in;
@@ -291,6 +312,8 @@ void takeFrame(short type) {
     pendingCommands[pendingCount++] = (char)f.data[0];
   } else if (type == TL_SHOT) {
     takeShotPiece(f);
+  } else if (type == TL_MEM) {
+    takeMemory(f);
   } else if (type == TL_HELLO) {
     outLen = 0;  // output for the link before this one
   }

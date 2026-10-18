@@ -248,6 +248,7 @@ waits for it to speak, which gives a slipped link the quiet it needs.
 | STATUS | yes | ESP32 | the answer to `w`: `+` if Wi-Fi is connected or `-` if not, and a line of text |
 | LIST | yes | ESP32 | one entry of the answer to `l` or `m`: the letter, the entry from 0, its text (empty if not set) |
 | SHOT | yes | calculator | a screenshot, in 64 pieces: the piece number and 60 bytes of the screen |
+| MEM | yes | calculator | its free memory, for the Cardputer's memory page: free RAM (`HeapAvail`), free handles, and from `EM_survey` the archive's free bytes, the bytes a garbage collection would free and the bytes in use, each least significant byte first. Sent every 5 s while nothing else waits to go, and at once after each HELLO_ACK. The archive is counted again only every minute, since that takes longer. `HeapMax` is not used: it compacts the heap each time |
 
 The commands:
 

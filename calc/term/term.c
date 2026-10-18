@@ -526,6 +526,46 @@ static unsigned long nowMs(void)
   return FiftyMsecTick * 50UL;
 }
 
+// The calculator's free memory goes to the ESP32 in a MEM frame every
+// MEMORY_MS, for the Cardputer's memory page. Counting the archive takes
+// longer, so it is counted again only every ARCHIVE_MS. HeapMax is not
+// used: it compacts the heap each time.
+#define MEMORY_MS 5000UL
+#define ARCHIVE_MS 60000UL
+static unsigned long memoryAt, archiveAt;
+static unsigned long archiveFree, archiveGc, archiveUsed;
+
+static void putLong(unsigned char *p, unsigned long v)
+{
+  p[0] = v;
+  p[1] = v >> 8;
+  p[2] = v >> 16;
+  p[3] = v >> 24;
+}
+
+// Only when nothing else waits for the window, so that it never holds up a
+// key.
+static void reportMemory(unsigned long now)
+{
+  unsigned char m[TL_MEM_SIZE];
+  unsigned short handles;
+
+  if (!lk.started || outQueueLen || !tl_window_free(&lk) || now - memoryAt < MEMORY_MS) return;
+  memoryAt = now;
+  if (now - archiveAt >= ARCHIVE_MS) {
+    archiveAt = now;
+    EM_survey(&archiveUsed, &archiveGc, &archiveFree, NULL, NULL, NULL);
+  }
+  handles = FreeHandles();
+  putLong(m + TL_MEM_HEAP, HeapAvail());
+  m[TL_MEM_HANDLES] = handles;
+  m[TL_MEM_HANDLES + 1] = handles >> 8;
+  putLong(m + TL_MEM_ARCHIVE, archiveFree);
+  putLong(m + TL_MEM_GC, archiveGc);
+  putLong(m + TL_MEM_ARCHIVED, archiveUsed);
+  tl_send(&lk, TL_MEM, m, sizeof(m));
+}
+
 // Returns 0 when there is no room: nothing has been taking frames for a
 // while (nobody is listening), and they are dropped rather than left to
 // pile up.
@@ -567,6 +607,7 @@ static void linkTransmit(unsigned long now)
     memmove(outQueue, outQueue + size, outQueueLen);
     lastData = lastData >= size ? lastData - size : -1;
   }
+  reportMemory(now);
   tl_poll(&lk, now);
   room = OSLinkTxQueueInquire();
   if (room > (short)sizeof(buf)) room = sizeof(buf);
@@ -595,6 +636,7 @@ static short linkNext(void)
     if (type == TL_HELLO_ACK && lk.in.len >= 2) {
       memcpy(espId, lk.in.data, sizeof(espId));
       espIdKnown = 1;
+      memoryAt = archiveAt = now - ARCHIVE_MS;  // a new link, maybe a new ESP32: all of it at once
     }
     if (type) {
       linkTransmit(now);  // the acknowledgement goes at once
