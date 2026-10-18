@@ -1,11 +1,15 @@
 /*
  * esp32_tilink_term.ino - carries the calculator terminal's bytes
  *
- * The calculator runs calc/term (a dumb terminal). This sketch carries raw
- * bytes between it and a backend, on top of TiLink's bit handshake. There are
- * no packets: TI's protocol is not involved.
+ * The calculator runs calc/term (a dumb terminal). This sketch carries its
+ * bytes between it and a backend, on top of TiLink's bit handshake, in the
+ * frames of the link layer in link/ (tlink.h), which the calculator's program
+ * shares: each frame is checked, acknowledged and sent again if it was lost,
+ * so nothing is lost or garbled on the way, not even when the cable is
+ * replugged. TI's packet protocol is not involved.
  *
- * The calculator picks the backend from its menu, with 0x1E and a letter:
+ * DATA frames carry the session's bytes both ways. The calculator picks the
+ * backend from its menu with a CMD frame: a letter, and for some a slot:
  *   's'  Serial: the USB serial port, described below
  *   'h'  SSH: a shell on the selected host, over Wi-Fi (see Ssh.h)
  *   'n'  Wi-Fi settings: asks on the calculator for a network and its
@@ -15,29 +19,24 @@
  *   'g'  SSH key: makes the ESP32's own key pair, or removes it
  *   'i'  copies the public key to the selected host, after asking
  *   'j'  joins the selected Wi-Fi network, which is then the one in use
- *   '1' to '8'  selects one of the stored hosts for the 'h', 'k' or 'i'
- *        that follows, or one of the networks for 'j', and does nothing else
  *   'l'  asks for the list of hosts, for the calculator's host menu. The
- *        answer is 0x1E 'l' and one line for each of the 8 hosts, user@host
- *        or empty, each ended by a newline. It leaves the backend alone.
+ *        answer is a LIST frame for each of the 8 hosts: 'l', the entry
+ *        from 0, and user@host or nothing. It leaves the backend alone.
  *   'm'  asks for the list of Wi-Fi networks, for the calculator's Wi-Fi
- *        menu. The answer is 0x1E 'm' and one line for each of the 4
- *        networks, in the same way.
+ *        menu, answered in the same way with 'm' and the 4 networks.
  *   'x'  the session is over
  *   'w'  asks for the Wi-Fi status, for the menu's status bar. The answer is
- *        0x1E 'w', '+' or '-' for Wi-Fi up or down, a line of text and a
- *        newline. It leaves the backend alone.
- *   'y'  are you there? Asked every 2 s in a session. The answer is 0x1E 'y',
- *        two letters picked at power-up, and a newline: the calculator
- *        notices a restart by the letters. It is not queued with the other
- *        commands, so it is answered during the dialogs too, wherever it
- *        falls in the output, and leaves everything else alone.
- *   'p'  a screenshot: the 3840 bytes of the calculator's screen follow, as
- *        they are. It leaves the backend alone too. With a computer attached
- *        (paced raw mode, below) they are passed on as 0x1E 'p' and the bytes.
- * A real 0x1E byte from the calculator arrives doubled. A real 0x1E in the
- * session's output (from SSH or the serial port) goes to the calculator
- * doubled too, so it is never taken for the start of an answer.
+ *        a STATUS frame: '+' or '-' for Wi-Fi up or down, and a line of text.
+ *        It leaves the backend alone.
+ * 'h', 'k' and 'i' carry the slot of the host, from 1, and 'j' that of the
+ * network. SHOT frames carry a screenshot: the 3840 bytes of the
+ * calculator's screen, in numbered pieces. With a computer attached (paced
+ * raw mode, below) it is passed on as 0x1E 'p' and the bytes.
+ *
+ * The calculator starts the link with HELLO, which the answer carries the
+ * ESP32's id in: two letters picked at power-up, by which the calculator
+ * notices a restart. Anything else before a HELLO is answered with WHO,
+ * which makes the calculator say HELLO again.
  *
  * Serial has two modes:
  *   monitor (at power-up)  for the Serial Monitor. A typed line goes to the
@@ -70,11 +69,12 @@
  * again when the host is back.
  *
  * Serial Monitor: 115200 baud, newline line ending.
- * Needs TiLink.h / TiLink.cpp and Ssh.h / Ssh.cpp in the same folder, and the
- * LibSSH-ESP32 library.
+ * Needs TiLink.h / TiLink.cpp and Ssh.h / Ssh.cpp in the same folder, the
+ * LibSSH-ESP32 library, and link/ as a library (the Makefile passes it).
  */
 #include <Preferences.h>
 #include <WiFi.h>
+#include <tlink.h>
 #include "Display.h"
 #include "Ssh.h"
 #include "TiLink.h"
@@ -96,6 +96,10 @@ const uint8_t PIN_RING = 5;
 // How long a byte may wait for the calculator to start taking it.
 const uint32_t SEND_PATIENCE_MS = 5000;
 
+// The link layer. A frame not acknowledged within RTO_MS is sent again.
+const unsigned short RTO_MS = 500;
+tl_link lk;
+
 const char HELP[] =
   "Commands: /stats | /burst [bytes] | /raw | /settings | /pubkey | /forgethost [n] | /help   (anything else is sent)";
 
@@ -107,21 +111,24 @@ bool rawMode = false;
 bool linkDown = false;  // both lines held low: calculator off or half plugged
 
 // The lines read idle with nothing plugged in too, so the calculator counts
-// as there only while its own bytes are heard: its program asks for the
-// Wi-Fi status every 3 s in a menu, and whether the ESP32 is there every 2 s
-// in a session, output or not. The bytes it takes do not count: after a
-// replug its link can be out of step, taking bytes but unable to send.
+// as there only while its own frames are heard: it acknowledges what it
+// takes, and sends a PING when it has sent nothing for 2 s. Nothing is sent
+// to a calculator not heard from: after a replug its link can be out of
+// step, taking bytes but unable to send, and only quiet puts it right.
 const uint32_t HEARD_MS = 5000;
-uint32_t lastHeardMs = 0;
-bool heardOnce = false;
 
 bool calcHeard() {
-  return heardOnce && millis() - lastHeardMs < HEARD_MS;
+  return tl_heard_within(&lk, millis(), HEARD_MS);
 }
 
-// How long a byte for a calculator not heard from lately waits for it to
-// speak: its next question is due within 3 s, within 2 s in a session.
-const uint32_t CALC_WAIT_MS = 4000;
+// The session's output is gathered here and goes out as DATA frames.
+uint8_t out[TL_MAX_PAYLOAD];
+uint8_t outLen = 0;
+
+// How long output that has to go (the dialogs' text, the answers to the
+// menu) waits for room in the link's window: long enough for a slipped link
+// to recover.
+const uint32_t OUT_WAIT_MS = 10000;
 uint32_t toCalc = 0, fromCalc = 0, dropped = 0, retries = 0;
 String line;
 
@@ -138,15 +145,13 @@ uint32_t hostHeardMs = 0, hostAskedMs = 0;
 bool hostLost = false;  // the calculator has been told
 
 // Where the calculator's session goes. Set by the calculator's commands,
-// which are queued while bytes are being moved and run from loop().
+// which are queued while bytes are being moved and run from loop(). A
+// command's slot is queued before it as a digit.
 enum Backend : uint8_t { BACKEND_NONE, BACKEND_SERIAL, BACKEND_SSH };
 Backend backend = BACKEND_NONE;
-bool markFromCalc = false;
 char pendingCommands[8];
 uint8_t pendingCount = 0;
-bool pingAsked = false;  // the calculator's 'y', answered by answerPing()
-bool answerHeld = false; // a doubled 0x1E is half sent: no answer may go between
-char bootId[2];          // in the answer: new at every power-up
+char bootId[2];          // in the answer to HELLO: new at every power-up
 
 // While a question is being asked on the calculator, its keys are kept here
 // instead of going to a backend.
@@ -180,9 +185,11 @@ Host hosts[MAX_HOSTS];
 uint8_t slot = 1;  // the host or network the calculator selected, from 1
 
 // A screenshot on its way in from the calculator: 240 x 128 pixels, one bit
-// each. While it arrives nothing is sent to the calculator.
+// each, in SHOT frames of a piece number and SHOT_PIECE bytes. While it
+// arrives no output is sent to the calculator, only acknowledgements.
 const size_t SHOT_BYTES = 3840;
-const uint32_t SHOT_GAP_MS = 2000;  // a longer silence means the rest is not coming
+const size_t SHOT_PIECE = 60;
+const uint32_t SHOT_GAP_MS = 5000;  // a longer silence means the rest is not coming
 uint8_t shot[SHOT_BYTES];
 size_t shotLeft = 0;
 uint32_t shotLastMs = 0;
@@ -209,8 +216,8 @@ void showStatus() {
   s.toCalc = toCalc;
   s.fromCalc = fromCalc;
   s.dropped = dropped;
-  s.resends = retries;
-  s.errors = ti.errors;
+  s.resends = lk.framesResent;
+  s.errors = ti.errors + lk.framesBad;
   uint8_t hostsSet = 0;
   for (const Host &h : hosts) hostsSet += h.isSet();
   if (backend == BACKEND_SSH) s.sshTarget = hostLabel(slot);
@@ -257,11 +264,43 @@ void finishShot() {
   }
 }
 
+// A screenshot piece. The pieces come in order, once each; piece 0 starts
+// a new screenshot.
+void takeShotPiece(const tl_frame &f) {
+  if (f.len < 1) return;
+  size_t at = f.data[0] * SHOT_PIECE;
+  if (f.data[0] == 0) shotLeft = SHOT_BYTES;
+  if (!shotLeft || at != SHOT_BYTES - shotLeft) return;  // the rest of one given up on
+  size_t n = min((size_t)(f.len - 1), shotLeft);
+  memcpy(shot + at, f.data + 1, n);
+  fromCalc += n;
+  shotLeft -= n;
+  shotLastMs = millis();
+  if (!shotLeft) finishShot();
+}
+
+// A frame from the calculator, as the link layer hands it on.
+void takeFrame(short type) {
+  const tl_frame &f = lk.in;
+  if (type == TL_DATA) {
+    for (uint8_t i = 0; i < f.len; i++) forwardFromCalc(f.data[i]);
+  } else if (type == TL_CMD && f.len >= 1 && pendingCount + 2 <= sizeof(pendingCommands)) {
+    if (f.len >= 2) pendingCommands[pendingCount++] = (char)('0' + f.data[1]);
+    pendingCommands[pendingCount++] = (char)f.data[0];
+  } else if (type == TL_SHOT) {
+    takeShotPiece(f);
+  } else if (type == TL_HELLO) {
+    outLen = 0;  // output for the link before this one
+  }
+  lk.hold = shotLeft != 0;  // the link is the calculator's while a screenshot arrives
+}
+
 // Takes everything the calculator is sending right now.
 void pumpFromCalc() {
   showStatus();
   if (shotLeft && millis() - shotLastMs > SHOT_GAP_MS) {
     shotLeft = 0;
+    lk.hold = 0;
     Display::log("screenshot: cut short");
     if (!rawMode) Serial.println("\n! The screenshot stopped part way.");
   }
@@ -273,10 +312,7 @@ void pumpFromCalc() {
   }
   for (;;) {
     int b = ti.recvByte(0);
-    if (b == -1) {
-      answerPing();
-      return;
-    }
+    if (b == -1) return;
     if (b < 0) {
       if (ti.lastErrStage == 2 && ti.lastErrBit == 0) {
         linkDown = true;
@@ -287,60 +323,22 @@ void pumpFromCalc() {
       }
       return;
     }
-    lastHeardMs = millis();
-    heardOnce = true;
-    if (shotLeft) {
-      fromCalc++;
-      shot[SHOT_BYTES - shotLeft] = (uint8_t)b;
-      shotLastMs = millis();
-      if (--shotLeft == 0) finishShot();
-    } else if (markFromCalc) {
-      markFromCalc = false;
-      if (b == CONTROL_MARK) {
-        forwardFromCalc((uint8_t)b);
-      } else if (b == 'p') {
-        shotLeft = SHOT_BYTES;
-        shotLastMs = millis();
-      } else if (b == 'y') {
-        pingAsked = true;
-      } else if (pendingCount < sizeof(pendingCommands)) {
-        pendingCommands[pendingCount++] = (char)b;
-      }
-    } else if (b == CONTROL_MARK) {
-      markFromCalc = true;
-    } else {
-      forwardFromCalc((uint8_t)b);
-    }
+    short type = tl_rx_byte(&lk, (uint8_t)b, millis());
+    if (type) takeFrame(type);
   }
 }
 
 // ---------- backend -> calculator ----------
 
-// The link is half duplex, so the calculator's bytes are taken first. If the
-// calculator does not start taking ours (busy drawing, or it began a byte of
-// its own at the same moment) the byte is retried, which is safe as long as
-// no bit of it went through.
-//
-// Nothing is started while the calculator has not been heard from lately: it
-// may be unplugged, or its link may have slipped by a bit when the cable went
-// back in, which garbles everything after it and keeps it from sending. In
-// both cases the byte waits for the calculator to speak. The quiet meanwhile
-// is what puts a slipped link back in step: its hardware drops a half
-// received byte once the line has been still for a while.
-bool sendToCalc(uint8_t b) {
+// Puts one byte of a frame on the line. The link is half duplex, so the
+// calculator's bytes are taken first. If the calculator does not start
+// taking ours (busy drawing, or it began a byte of its own at the same
+// moment) the byte is tried again, which is safe as long as no bit of it went
+// through. Otherwise the rest of the frame is given up on: the calculator
+// drops what it got of it, and the link layer sends it again.
+bool sendWire(uint8_t b) {
   uint32_t t0 = millis();
-  while (!calcHeard()) {
-    pumpFromCalc();
-    if (millis() - t0 > CALC_WAIT_MS) {
-      dropped++;
-      return false;
-    }
-    delay(1);
-  }
-  t0 = millis();
   for (;;) {
-    pumpFromCalc();
-    if (shotLeft) continue;  // a screenshot is arriving: the link is the calculator's
     if (ti.sendByte(b)) {
       toCalc++;
       return true;
@@ -348,10 +346,77 @@ bool sendToCalc(uint8_t b) {
     bool nothingSent = ti.lastErrBit == 0 && ti.lastErrStage != 7;
     if (!nothingSent || millis() - t0 > SEND_PATIENCE_MS) break;
     retries++;
+    pumpFromCalc();
   }
-  dropped++;
-  reportLinkError("send error, byte dropped");
+  reportLinkError("send error, frame cut short");
   return false;
+}
+
+bool flushOut(bool wait);
+
+// Moves the link along: takes what the calculator sends, and sends what is
+// due, frames and acknowledgements. Nothing is sent while the calculator has
+// not been heard from lately: it may be unplugged, or its link may have
+// slipped by a bit when the cable went back in, and the quiet meanwhile is
+// what puts a slipped link back in step: its hardware drops a half received
+// byte once the line has been still for a while.
+void pumpLink() {
+  static bool busy = false;
+  pumpFromCalc();
+  if (busy) return;  // called from below, through flushOut
+  busy = true;
+  for (;;) {
+    uint32_t now = millis();
+    // Output gathered so far goes when the line would go quiet otherwise.
+    if (outLen && tl_tx_idle(&lk)) flushOut(false);
+    tl_poll(&lk, now);
+    if (!calcHeard()) break;
+    short b = tl_tx_next(&lk, now);
+    if (b < 0) break;
+    if (!sendWire((uint8_t)b)) tl_tx_abort(&lk);
+    pumpFromCalc();
+  }
+  busy = false;
+}
+
+// Waits for room in the link's window, as long as OUT_WAIT_MS.
+bool waitWindow() {
+  uint32_t t0 = millis();
+  while (!tl_window_free(&lk)) {
+    pumpLink();
+    if (millis() - t0 > OUT_WAIT_MS) return false;
+    delay(1);
+  }
+  return true;
+}
+
+// Puts the output gathered so far into a DATA frame. Without wait it does
+// nothing when the window is full; with wait it gives up after OUT_WAIT_MS,
+// and the output is dropped.
+bool flushOut(bool wait) {
+  if (!outLen) return true;
+  if (!tl_window_free(&lk) && (!wait || !waitWindow())) {
+    if (wait) {
+      dropped += outLen;
+      outLen = 0;
+    }
+    return false;
+  }
+  tl_send(&lk, TL_DATA, out, outLen);
+  outLen = 0;
+  return true;
+}
+
+// A byte of the session's output, from SSH, the serial port or a dialog.
+bool sendToCalc(uint8_t b, bool wait = true) {
+  if (outLen == sizeof(out) && !flushOut(wait)) return false;
+  out[outLen++] = b;
+  return true;
+}
+
+// Any other frame, after the output before it.
+bool sendFrameToCalc(uint8_t type, const uint8_t *data, size_t len) {
+  return flushOut(true) && waitWindow() && tl_send(&lk, type, data, len);
 }
 
 // Gives up at the first dropped byte, so a dead link costs one wait, not one
@@ -359,30 +424,6 @@ bool sendToCalc(uint8_t b) {
 bool sendText(const char *s) {
   while (*s) if (!sendToCalc((uint8_t)*s++)) return false;
   return true;
-}
-
-// The answer to the calculator's 'y'. It can go between any two bytes of the
-// session's output, even inside an escape sequence: the calculator takes it
-// out wherever it falls. Sending pumps the link, so it can be asked again
-// meanwhile, and that waits for the next call.
-void answerPing() {
-  static bool answering = false;
-  if (!pingAsked || answering || answerHeld || shotLeft) return;
-  answering = true;
-  pingAsked = false;
-  const char answer[] = {(char)CONTROL_MARK, 'y', bootId[0], bootId[1], '\n', 0};
-  sendText(answer);  // stops at a dropped byte, as when the link went away meanwhile
-  answering = false;
-}
-
-// A byte of the session's output, from SSH or the serial port. A real 0x1E
-// goes twice, which the calculator reads as one byte and not as an answer.
-bool sendDataToCalc(uint8_t b) {
-  if (b != CONTROL_MARK) return sendToCalc(b);
-  answerHeld = true;
-  bool sent = sendToCalc(b) && sendToCalc(b);
-  answerHeld = false;
-  return sent;
 }
 
 // ---------- the calculator's commands ----------
@@ -406,7 +447,7 @@ bool askOnCalc(const char *prompt, bool hidden, String &answer) {
   sendText(prompt);
 
   for (;;) {
-    pumpFromCalc();
+    pumpLink();
     if (pendingCount) { asking = false; return false; }
     if (!typedCount) { delay(1); continue; }
 
@@ -525,7 +566,7 @@ bool joinKnownWifi(Ssh::SayFn say) {
   for (uint8_t i = 0; i < count; i++) {
     if (anySeen && !seen[order[i]]) continue;
     if (tryNetwork(order[i], say)) return true;
-    pumpFromCalc();
+    pumpLink();
     if (pendingCount) return false;  // the user left for the menu
   }
   return false;
@@ -875,35 +916,40 @@ void sendWifiStatus() {
   } else {
     status = "Wi-Fi: " + wifiLabel() + ", not connected";
   }
-  sendToCalc(CONTROL_MARK);
-  sendToCalc('w');
-  sendToCalc(up ? '+' : '-');
-  sendText(status.substring(0, 60).c_str());
-  sendToCalc('\n');
+  uint8_t answer[1 + 60];
+  answer[0] = up ? '+' : '-';
+  size_t len = min(status.length(), sizeof(answer) - 1);
+  memcpy(answer + 1, status.c_str(), len);
+  sendFrameToCalc(TL_STATUS, answer, 1 + len);
 }
 
-// The hosts, for the calculator's host menu: a line each, empty if not set.
+// One entry of a list for the calculator's menus: the list's letter, the
+// entry from 0 and its text, which can be empty.
+bool sendListEntry(char letter, uint8_t entry, const String &text) {
+  uint8_t answer[2 + 60];
+  answer[0] = letter;
+  answer[1] = entry;
+  size_t len = min(text.length(), sizeof(answer) - 2);
+  memcpy(answer + 2, text.c_str(), len);
+  return sendFrameToCalc(TL_LIST, answer, 2 + len);
+}
+
+// The hosts, for the calculator's host menu: an entry each, empty if not set.
 void sendHostList() {
-  sendToCalc(CONTROL_MARK);
-  sendToCalc('l');
   for (uint8_t n = 1; n <= MAX_HOSTS; n++) {
-    sendText(hostLabel(n).c_str());
-    sendToCalc('\n');
+    if (!sendListEntry('l', n - 1, hostLabel(n))) return;
   }
 }
 
 // The networks, for the calculator's Wi-Fi menu, in the same way.
 void sendNetworkList() {
   bool up = WiFi.status() == WL_CONNECTED;
-  sendToCalc(CONTROL_MARK);
-  sendToCalc('m');
   for (uint8_t i = 0; i < MAX_NETWORKS; i++) {
     String label = networks[i].name;
     if (!networks[i].isSet()) label = "";
     else if (up && WiFi.SSID() == label) label += String("  (joined, ") + WiFi.RSSI() + " dBm)";
     else if (i + 1 == lastNetwork) label += "  (used last)";
-    sendText(label.c_str());
-    sendToCalc('\n');
+    if (!sendListEntry('m', i, label)) return;
   }
 }
 
@@ -920,12 +966,13 @@ void runPendingCommands() {
   }
 }
 
+// Reads only as much as there is room for: the rest stays unread and holds
+// the host back.
 void pumpSsh() {
-  uint8_t buf[64];
-  int n = Ssh::read(buf, sizeof(buf));
-  for (int i = 0; i < n; i++) {
-    if (!sendDataToCalc(buf[i])) break;
-  }
+  if (outLen == sizeof(out) && !flushOut(false)) return;
+  uint8_t buf[sizeof(out)];
+  int n = Ssh::read(buf, sizeof(out) - outLen);
+  for (int i = 0; i < n; i++) sendToCalc(buf[i], false);
   if (n < 0) {
     Display::log("SSH closed by the host");
     Ssh::close();
@@ -940,6 +987,9 @@ void printStats() {
   Serial.printf("to calc %lu, from calc %lu, dropped %lu, retries %lu, link errors %lu, line idle: %s\n",
                 (unsigned long)toCalc, (unsigned long)fromCalc, (unsigned long)dropped,
                 (unsigned long)retries, (unsigned long)ti.errors, ti.lineIdle() ? "yes" : "NO");
+  Serial.printf("frames sent %lu, sent again %lu, bad frames from calc %lu, link %s\n",
+                (unsigned long)lk.framesSent, (unsigned long)lk.framesResent,
+                (unsigned long)lk.framesBad, lk.started ? "started" : "not started (no HELLO yet)");
 }
 
 // Sends numbered 60-character lines, so a lost or repeated byte shows on the
@@ -956,6 +1006,9 @@ void burst(uint32_t bytes) {
       if (!sendToCalc((uint8_t)text[i])) { bytes = sent; break; }
     }
   }
+  flushOut(true);
+  // Until the calculator has it all: the speed is that of the link.
+  for (uint32_t t1 = millis(); !tl_all_acked(&lk) && millis() - t1 < OUT_WAIT_MS; delay(1)) pumpLink();
 
   uint32_t ms = millis() - t0;
   Serial.printf("\nburst: %lu bytes in %lu ms = %lu bytes/s, %lu dropped, %lu received meanwhile\n",
@@ -1014,7 +1067,9 @@ void setup() {
   ti.begin();
   loadSettings();
   for (char &c : bootId) c = 'A' + (esp_random() ^ micros()) % 26;
-  Ssh::waiting = pumpFromCalc;  // the calculator's 'y' is answered while Wi-Fi is joined
+  tl_init(&lk, TL_RESPONDER, RTO_MS, 0);
+  tl_set_id(&lk, (const unsigned char *)bootId, sizeof(bootId));
+  Ssh::waiting = pumpLink;  // the calculator is answered while Wi-Fi is joined
   // Join the network used last in the background, so it is up before it is
   // needed.
   uint8_t order[MAX_NETWORKS];
@@ -1049,7 +1104,7 @@ void handleControl(const String &word) {
 
 void handleSerialByte(char c) {
   if (rawMode) {
-    sendDataToCalc((uint8_t)c);
+    sendToCalc((uint8_t)c);
     if (paced && ++unacked == ACK_EVERY) {
       unacked = 0;
       Serial.write(CONTROL_MARK);
@@ -1068,7 +1123,7 @@ void handleSerialByte(char c) {
 // it prints is lost.
 bool hostReadable() {
   if (!(rawMode && paced)) return true;
-  return backend == BACKEND_SERIAL && calcHeard();
+  return backend == BACKEND_SERIAL && calcHeard() && (outLen < sizeof(out) || tl_window_free(&lk));
 }
 
 // Asks the paced host whether it is there, and tells the calculator when it
@@ -1101,7 +1156,7 @@ void handleHostCommand(char c) {
 }
 
 void loop() {
-  pumpFromCalc();
+  pumpLink();
   runPendingCommands();
   // Like the serial port's, the SSH output waits while the calculator is away:
   // unread, it holds the host back, and nothing is lost.
