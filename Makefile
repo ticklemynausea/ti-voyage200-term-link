@@ -8,6 +8,8 @@
 #   make screenshots         attach to the ESP32 and run nothing: only save the
 #                            screens the calculator sends with 2nd + APPS, in
 #                            screenshots/ (make shell saves them too)
+#   make link:test           run the link layer (link/) on this computer, over
+#                            a simulated line that garbles, drops and slips
 #
 # For the ESP32 the target starts with the board, esp32_stamps3 or
 # esp32_cardputer, then the sketch, then build or flash:
@@ -49,12 +51,18 @@ version_h = @mkdir -p build/$(1)-term && \
 	printf '\#define VERSION "%s"\n\#define BUILT "%s"\n' '$(VERSION)' "$$(date '+%b %e %Y %H:%M:%S')" \
 	> build/$(1)-term/version.h
 
-# $(call compile,fqbn,board,sketch) and the same with an upload.
-compile = arduino-cli compile --fqbn $(1) --output-dir build/$(2)-$(3) \
+# $(call compile,fqbn,board,sketch) and the same with an upload. link/ is the
+# link layer the terminal sketch shares with the calculator's program.
+compile = arduino-cli compile --fqbn $(1) --output-dir build/$(2)-$(3) --library $(CURDIR)/link \
 	--build-property compiler.cpp.extra_flags=-I$(CURDIR)/build/$(2)-$(3) esp32/esp32_tilink_$(3)
 upload = $(call compile,$(1),$(2),$(3)) --upload -p $(PORT)
 need_port = @test -n "$(PORT)" || { echo "No ESP32 found on /dev/cu.usbmodem*. Plug it in or pass PORT=..."; exit 1; }
 sd_hint = @echo "For M5 Launcher: copy build/cardputer-$(1)/esp32_tilink_$(1).ino.bin to the SD card."
+
+link\:test:
+	@mkdir -p build
+	$(CC) -std=c99 -O2 -Wall -Wextra -Ilink/src link/src/tlink.c link/test/test_link.c -o build/test_link
+	build/test_link
 
 calc\:term\:build:
 	$(MAKE) -C calc/term
@@ -104,7 +112,7 @@ screenshots:
 	$(need_port)
 	python3 shell/shell.py --port $(PORT) --no-shell
 
-.PHONY: shell screenshots calc\:term\:build calc\:term\:send \
+.PHONY: shell screenshots link\:test calc\:term\:build calc\:term\:send \
 	esp32_stamps3\:term\:build esp32_stamps3\:term\:flash \
 	esp32_stamps3\:linetest\:build esp32_stamps3\:linetest\:flash \
 	esp32_cardputer\:term\:build esp32_cardputer\:term\:flash \
