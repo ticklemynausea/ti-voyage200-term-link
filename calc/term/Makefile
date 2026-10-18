@@ -30,9 +30,12 @@ $(BUILD)/help.h: help.txt mkhelp.py
 	mkdir -p $(BUILD)
 	python3 mkhelp.py help.txt $@
 
-# Sends the program to the calculator (idle at the Home screen).
+# Sends the program to the calculator (idle at the Home screen). The timeout
+# is in tenths of a second: TiLP's default of 1.5 s can run out while the
+# calculator stores the program, an archived one or a garbage collection
+# taking longer, and the send then fails although the program arrived.
 send: $(OUT)
-	$(TILP) --no-gui --silent --calc=v200 --cable=$(CABLE) $(OUT)
+	$(TILP) --no-gui --silent --calc=v200 --cable=$(CABLE) --timeout=100 $(OUT)
 
 clean:
 	rm -rf $(BUILD)
