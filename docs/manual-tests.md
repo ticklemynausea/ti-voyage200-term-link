@@ -193,7 +193,7 @@ press the keys, then ◆ + D. Run them in bash (or zsh) where a step says so.
 | X17 |  | `cat -v`: ◆ + ^. | `^^` |
 | X18 |  | `cat -v`: ◆ + APPS, ◆ + MODE, 2nd + LN, ◆ + LN, 2nd + ^. | `^[[Z^]^_^\~` (◆ + LN may end `cat` instead: Ctrl-\ quits it) |
 | X19 |  | bash: type `one two`, then 2nd + LN. | The last word typed is undone. |
-| X20 |  | `cat /bin/ls` or `head -c 2000 /dev/urandom`, then ◆ + CLEAR. | The screen is clear, the cursor at the top left, and new output looks right. |
+| X20 |  | `cat /bin/ls` or `head -c 2000 /dev/urandom`, then ◆ + CLEAR. | The terminal is reset and the shell redraws its prompt; what is typed next looks right. |
 | X21 |  | tmux: 2nd + TAN, 2nd + TAN, then 2nd + SIN, ESC; 2nd + COS. | Two new windows; the list opens and closes; then the window before. |
 | X22 |  | tmux, after `seq 100`: ◆ + SIN, ◆ + up a few times, `q`. | Copy mode a page back, more pages back, then out of it. |
 | X23 |  | tmux: ◆ + TAN, move to a word, select and copy it (emacs keys: ◆ + space, move, MODE then w; vi keys: Space, move, ENTER); then ◆ + COS. | The copied text is typed at the prompt. |

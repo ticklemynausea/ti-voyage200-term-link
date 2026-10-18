@@ -24,7 +24,7 @@ More keys, and the keys for tmux, on the next page.
 MORE KEYS
 
 diamond + APPS     Shift-Tab
-diamond + CLEAR    resets this screen; sends nothing
+diamond + CLEAR    resets this screen, then Ctrl-L
 diamond + MODE     Ctrl-]
 2nd + LN           Ctrl-_ (undo)
 diamond + LN       Ctrl-\ (quits what Ctrl-C does not)

@@ -311,7 +311,7 @@ cannot switch the mode behind its back.
 | APPS | Tab, in one key (◆ + I is Tab too) |
 | ◆ + APPS | Shift-Tab (`ESC [ Z`), as 2nd + I |
 | CLEAR | Ctrl-U, which erases the line in the shell |
-| ◆ + CLEAR | nothing: resets this terminal and clears its screen, as `ESC c` from the host would. For a screen left in a mess that the program in it does not redraw |
+| ◆ + CLEAR | Ctrl-L, after resetting this terminal as `ESC c` from the host would. For a screen left drawing lines or in reverse video by binary output, which Ctrl-L alone (◆ + L) only redraws in the same mess |
 | LN | Ctrl-R, which searches the shell's history |
 | 2nd + LN | Ctrl-_, undo in the shell and in emacs |
 | ◆ + LN | Ctrl-\, which quits a program that Ctrl-C does not stop |

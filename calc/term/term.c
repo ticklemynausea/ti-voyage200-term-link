@@ -17,7 +17,7 @@
 //   SIN, COS, TAN      tmux: previous window, next window, the prefix
 //   2nd + SIN/COS/TAN  tmux: window list, last window, new window
 //   dia. + SIN/COS/TAN tmux: a page back, paste, copy mode
-//   diamond + APPS     Shift-Tab; diamond + CLEAR resets this screen
+//   diamond + APPS     Shift-Tab; diamond + CLEAR resets, then Ctrl-L
 //   2nd / diamond + LN Ctrl-_ (undo) / Ctrl-backslash
 //   diamond + MODE     Ctrl-]; 2nd + ^ types ~
 //   Hand + arrow       Ctrl + arrow; shift + arrow sends Shift + arrow
@@ -950,10 +950,12 @@ static void handleKey(unsigned short key)
   } else if (key == KEY_CLEAR) {
     keySend("\x15", 1);  // Ctrl-U: erases the line in the shell
   } else if (key == KEY_DIAMOND + KEY_CLEAR) {
-    // Resets this terminal and clears its screen, sending nothing: for a
-    // screen left in a mess that the program in it will not redraw.
+    // Resets this terminal, which Ctrl-L alone cannot: binary output can
+    // leave it drawing lines or in reverse video. Then Ctrl-L has the
+    // program redraw on the clean screen.
     hideCursor();
     termPuts("\x1B" "c");
+    keySend("\x0C", 1);
   } else if (key == KEY_DIAMOND + KEY_MODE) {
     keySend("\x1D", 1);  // Ctrl-], which diamond + 2nd + divide cannot give
   } else if (key == KEY_LN) {
