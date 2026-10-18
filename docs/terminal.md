@@ -316,12 +316,20 @@ cannot switch the mode behind its back.
 | 2nd + LN | Ctrl-_, undo in the shell and in emacs |
 | ◆ + LN | Ctrl-\, which quits a program that Ctrl-C does not stop |
 | ◆ + MODE | Ctrl-] |
-| 2nd + ^ | `~` (the calculator's π) |
+| (−) | `-`, as the subtraction key |
+| θ | `$` |
+| 2nd + D / F / J (°, ∠, ∞) | `~` / `` ` `` / `%` |
+| 2nd + ^ (π) / 2nd + × (√) | `` ` `` / `~` |
+| 2nd + (−) (ANS) | Alt-. (`ESC .`): the last command's last argument in bash and zsh |
+| 2nd + ENTER (ENTRY) | up, then ENTER: runs the last command again in the shell |
 | SIN / COS | tmux: the previous / next window (Ctrl-B `p`, Ctrl-B `n`) |
 | TAN | tmux's prefix, Ctrl-B (◆ + B too) |
 | 2nd + SIN / COS / TAN | tmux: the list of windows / the window before this one / a new window (Ctrl-B `w`, `l`, `c`) |
-| ◆ + SIN | tmux: copy mode, a page back (Ctrl-B Page Up). `q` leaves it |
-| ◆ + TAN / ◆ + COS | tmux: copy mode / paste what it copied (Ctrl-B `[`, `]`) |
+| STO▸ / 2nd + STO▸ (RCL) | tmux: copy mode / paste what it copied (Ctrl-B `[`, `]`). In copy mode ◆ + up is a page back, and `q` leaves it |
+| 2nd + 1 to 9 | tmux: windows 1 to 9 (Ctrl-B `1` to `9`). `tmux_calc.conf` numbers windows from 1 |
+| ◆ + SIN / ◆ + COS | tmux: splits the window into two panes side by side / one above the other (Ctrl-B `%`, `"`) |
+| ◆ + TAN | tmux: the other pane (Ctrl-B `o`) |
+| 2nd + − (VAR-LINK) | tmux: the list of sessions (Ctrl-B `s`) |
 | MODE, or shift + Hand | nothing itself: the next key goes out after an ESC, which is Alt + that key. Pressed again, it is called off |
 | 2nd + I | Shift-Tab (`ESC [ Z`). Tab is ◆ + I, and shift cannot be added to that |
 | ◆ + up / down | Page Up / Page Down |
@@ -335,8 +343,8 @@ cannot switch the mode behind its back.
 | 2nd + ESC (QUIT) | nothing: goes back to the menu. ◆ + ESC does the same |
 | 2nd + APPS | nothing: takes a [screenshot](#screenshots), in the menus too |
 
-Any other key sends nothing. That covers the TI-only characters, such as the
-(−) negation key: use the subtraction key for `-`. The divide key types `/`.
+Any other key sends nothing. That covers the remaining TI-only characters,
+such as ≠ or é. The divide key types `/`.
 
 **Ctrl.** ◆ + a letter sends what Ctrl + that letter sends on a computer
 keyboard, in either case. The ones used most:
@@ -486,6 +494,10 @@ This is about the screen only. The keyboard still types ASCII.
   SIN, COS and TAN 259 to 261. ◆ adds 8192 to each and 2nd adds 4096 to LN,
   SIN, COS and TAN (2nd + APPS, 4361, is the screenshot key). 2nd + ^ is
   140, the π character.
+- **More of the calculator's keys arrive as its characters:** (−) 173, θ
+  136, 2nd + 1 (EE) 149, 2nd + D (°) 176, 2nd + F (∠) 159, 2nd + J (∞)
+  190. Others are functions: STO▸ 258, RCL 4354, ANS 4372, ENTRY 4109,
+  √ 4138, VAR-LINK 4141, and 2nd + 2 to 9 are 4146 to 4153.
 - **Hand adds 32768, but only to the arrows** (Hand + left is 33105). Hand
   with a letter or backspace puts nothing in the keyboard queue. Shift +
   Hand is a key of its own, 380, which the program uses for Alt.

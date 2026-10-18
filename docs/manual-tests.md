@@ -191,12 +191,16 @@ press the keys, then ◆ + D. Run them in bash (or zsh) where a step says so.
 | X15 |  | bash: MODE, `.`, as in X01. | The last argument is put in, as with shift + Hand. |
 | X16 |  | tmux with two windows: COS, SIN, then TAN, `c`. | Next window, previous window, then a new one. |
 | X17 |  | `cat -v`: ◆ + ^. | `^^` |
-| X18 |  | `cat -v`: ◆ + APPS, ◆ + MODE, 2nd + LN, ◆ + LN, 2nd + ^. | `^[[Z^]^_^\~` (◆ + LN may end `cat` instead: Ctrl-\ quits it) |
+| X18 |  | `cat -v`: ◆ + APPS, ◆ + MODE, 2nd + LN, ◆ + LN. | `^[[Z^]^_^\` (◆ + LN may end `cat` instead: Ctrl-\ quits it) |
 | X19 |  | bash: type `one two`, then 2nd + LN. | The last word typed is undone. |
 | X20 |  | `cat /bin/ls` or `head -c 2000 /dev/urandom`, then ◆ + CLEAR. | The terminal is reset and the shell redraws its prompt; what is typed next looks right. |
 | X21 |  | tmux: 2nd + TAN, 2nd + TAN, then 2nd + SIN, ESC; 2nd + COS. | Two new windows; the list opens and closes; then the window before. |
-| X22 |  | tmux, after `seq 100`: ◆ + SIN, ◆ + up a few times, `q`. | Copy mode a page back, more pages back, then out of it. |
-| X23 |  | tmux: ◆ + TAN, move to a word, select and copy it (emacs keys: ◆ + space, move, MODE then w; vi keys: Space, move, ENTER); then ◆ + COS. | The copied text is typed at the prompt. |
+| X22 |  | tmux, after `seq 100`: STO, ◆ + up a few times, `q`. | Copy mode, pages back, then out of it. |
+| X23 |  | tmux: STO, move to a word, select and copy it (emacs keys: ◆ + space, move, MODE then w; vi keys: Space, move, ENTER); then 2nd + STO. | The copied text is typed at the prompt. |
+| X24 |  | `cat -v`: (−), θ, 2nd + D, 2nd + F, 2nd + J, 2nd + ^, 2nd + ×. | ``-$~`%`~`` |
+| X25 |  | bash: `echo one two`, ENTER, then 2nd + (−); clear the line, then 2nd + ENTER. | `two` is put in; then `echo one two` runs again. |
+| X26 |  | tmux_calc.conf, three windows: 2nd + 1, 2nd + 3, 2nd + 2. | Windows 1, 3, then 2 (the bar shows the first as `1`). |
+| X27 |  | tmux: ◆ + SIN, ◆ + COS, ◆ + TAN a few times; then 2nd + minus, ESC. | The window splits side by side, then one pane splits top and bottom; the cursor moves through the three panes; the list of sessions opens and closes. |
 
 ## Soak tests: long, heavy streams
 

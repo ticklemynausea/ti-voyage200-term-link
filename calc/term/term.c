@@ -16,10 +16,18 @@
 //   APPS, CLEAR, LN    Tab, Ctrl-U, Ctrl-R
 //   SIN, COS, TAN      tmux: previous window, next window, the prefix
 //   2nd + SIN/COS/TAN  tmux: window list, last window, new window
-//   dia. + SIN/COS/TAN tmux: a page back, paste, copy mode
 //   diamond + APPS     Shift-Tab; diamond + CLEAR resets, then Ctrl-L
 //   2nd / diamond + LN Ctrl-_ (undo) / Ctrl-backslash
-//   diamond + MODE     Ctrl-]; 2nd + ^ types ~
+//   diamond + MODE     Ctrl-]
+//   (-)                types -
+//   theta, 2nd + D/F/J $ ~ ` %
+//   2nd + ^ / times    ` / ~
+//   2nd + (-) / ENTER  Alt-. (ANS) / the last command again (ENTRY)
+//   2nd + 1 to 9       tmux: windows 1 to 9
+//   STO / 2nd + STO    tmux: copy mode / paste
+//   2nd + minus        tmux: the list of sessions
+//   dia. + SIN/COS/TAN tmux: split side by side / one above the other,
+//                      the other pane
 //   Hand + arrow       Ctrl + arrow; shift + arrow sends Shift + arrow
 //   2nd + up/down      Home / End (2nd + left/right too)
 //   2nd + backspace    Insert
@@ -60,6 +68,17 @@
 #define KEY_COS 260
 #define KEY_TAN 261
 #define KEY_LN 262
+// 2nd + (-), and 2nd + 1 and 2nd + times, the calculator's ANS, EE and root.
+#define KEY_ANS 4372
+#define KEY_EE 149
+#define KEY_ROOT 4138
+// Characters of the calculator that ASCII lacks, which stand in for symbols:
+// theta, 2nd + ^, and 2nd + D, F and J, the degree, angle and infinity signs.
+#define KEY_THETA 136
+#define KEY_PI 140
+#define KEY_DEGREE 176
+#define KEY_ANGLE 159
+#define KEY_INFINITY 190
 
 // ---------- screen ----------
 
@@ -964,8 +983,34 @@ static void handleKey(unsigned short key)
     keySend("\x1F", 1);  // Ctrl-_: undo
   } else if (key == KEY_DIAMOND + KEY_LN) {
     keySend("\x1C", 1);  // Ctrl-backslash: quits what Ctrl-C does not stop
-  } else if (key == KEY_2ND + '^') {
-    keySend("~", 1);  // 2nd + ^ is pi on the calculator
+  } else if (key == KEY_SIGN) {
+    keySend("-", 1);  // (-), the calculator's other minus
+  } else if (key == KEY_THETA) {
+    keySend("$", 1);
+  } else if (key == KEY_PI || key == KEY_ANGLE) {
+    keySend("`", 1);
+  } else if (key == KEY_ROOT || key == KEY_DEGREE) {
+    keySend("~", 1);
+  } else if (key == KEY_INFINITY) {
+    keySend("%", 1);
+  } else if (key == KEY_ANS) {
+    keySend("\x1B" ".", 2);  // Alt-.: the last command's last argument
+  } else if (key == KEY_ENTRY) {
+    sendArrow('A');  // the last command, run again
+    keySend("\r", 1);
+  } else if (key == KEY_EE) {
+    keySend("\x02" "1", 2);  // tmux: window 1, as 2nd + 2 to 9 are 2 to 9
+  } else if (key >= KEY_2ND + '2' && key <= KEY_2ND + '9') {
+    char code[2];
+    code[0] = 0x02;
+    code[1] = key - KEY_2ND;
+    keySend(code, 2);
+  } else if (key == KEY_STO) {
+    keySend("\x02" "[", 2);  // tmux: copy mode, as STO stores
+  } else if (key == KEY_RCL) {
+    keySend("\x02" "]", 2);  // tmux: pastes, as RCL recalls
+  } else if (key == KEY_VARLNK) {
+    keySend("\x02" "s", 2);  // tmux: the list of sessions
   } else if (key == KEY_SIN) {
     keySend("\x02" "p", 2);  // tmux: the previous window
   } else if (key == KEY_COS) {
@@ -979,11 +1024,11 @@ static void handleKey(unsigned short key)
   } else if (key == KEY_2ND + KEY_TAN) {
     keySend("\x02" "c", 2);  // tmux: a new window
   } else if (key == KEY_DIAMOND + KEY_SIN) {
-    keySend("\x02" "\x1B[5~", 5);  // tmux: copy mode, a page back
+    keySend("\x02" "%", 2);  // tmux: splits the window side by side
   } else if (key == KEY_DIAMOND + KEY_COS) {
-    keySend("\x02" "]", 2);  // tmux: pastes what copy mode copied
+    keySend("\x02" "\"", 2);  // tmux: splits it one pane above the other
   } else if (key == KEY_DIAMOND + KEY_TAN) {
-    keySend("\x02" "[", 2);  // tmux: copy mode
+    keySend("\x02" "o", 2);  // tmux: the other pane
   } else if (key == KEY_ENTER) {
     keySend("\r", 1);
   } else if (key == KEY_BACKSPACE) {
