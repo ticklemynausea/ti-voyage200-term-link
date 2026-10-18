@@ -152,6 +152,21 @@ numbers every 5 s while `term` runs.
 | M03 |  | Quit `term` (2nd+ESC in the menu), then wait 30 s. | "s ago" keeps growing; the numbers stay as they were. Start `term` again: back to at most 5 s. |
 | M04 |  | With `term` running, reset the ESP32. | The calculator's rows come back within a few seconds of the ESP32 starting, without waiting for the minute the archive takes. |
 
+## The OS's modifier indicators
+
+The OS's 2nd, shift and diamond indicators are kept off the screen while
+`term` runs (see Findings in [terminal.md](terminal.md)).
+
+| ID | Result | Steps | Expected |
+|---|---|---|---|
+| I01 | pass | Main menu: press 2nd, then 2nd again; then diamond, then a letter. | The reverse status row stays whole: no indicator, no white hole. |
+| I02 | pass | SSH session in tmux: press 2nd, diamond and shift, each followed by a key. | The tmux bar stays whole. |
+| I03 | pass | SSH session: shift lock on, type a few letters, shift lock off. | Capitals while it is on; no indicator, no hole. |
+| I04 |  | With text on the bottom row and 2nd armed, let the screen scroll (`ls -l`). | No stray pixels in the text. |
+| I05 |  | 2nd + APPS on the main menu. | The screenshot's status row has no white block. |
+| I06 | pass | Keys still work: 2nd + ESC, diamond + C, 2nd + divide (`]`), shift + a letter, a held key repeating. | All as before. |
+| I07 | pass | Quit `term`, then press 2nd on the Home screen. | The OS's own indicator shows there as usual: the handler was taken out. |
+
 ## Soak tests: long, heavy streams
 
 The hardest cases, so they come last: run them once everything above

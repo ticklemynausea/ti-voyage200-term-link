@@ -471,6 +471,44 @@ static void termPuts(const char *s)
   termWrite(s, strlen(s));
 }
 
+// ---------- status line guard ----------
+
+// The OS draws the 2nd, shift and diamond indicators in its status line,
+// over the terminal's bottom row, from auto-int 1, and later erases them to
+// white, which leaves a hole in what the terminal drew there. Auto-int 1 also
+// fills the keyboard queue, so it cannot be turned off. Instead the OS's
+// handler runs inside one of ours, which saves the box where the indicators
+// go and puts it back afterwards: they never reach the screen. Measured on a
+// Voyage 200, the OS drew in pixel rows 123 to 127, x 48 to 63; the box takes
+// rows 121 to 127, x 48 to 79, one long a row.
+#define GUARD_FIRST 121
+#define GUARD_ROWS (LCD_HEIGHT - GUARD_FIRST)
+#define GUARD_BYTE 6  // even, as a long needs
+
+#define GUARD_LONG(r) (*(volatile unsigned long *)(LCD_MEM + (GUARD_FIRST + (r)) * LCD_ROW_BYTES + GUARD_BYTE))
+
+static INT_HANDLER oldInt1;
+static unsigned long guardSaved[GUARD_ROWS];
+
+DEFINE_INT_HANDLER(guardInt1)
+{
+  short r;
+  for (r = 0; r < GUARD_ROWS; r++) guardSaved[r] = GUARD_LONG(r);
+  ExecuteHandler(oldInt1);
+  for (r = 0; r < GUARD_ROWS; r++) GUARD_LONG(r) = guardSaved[r];
+}
+
+static void guardOn(void)
+{
+  oldInt1 = GetIntVec(AUTO_INT_1);
+  SetIntVec(AUTO_INT_1, guardInt1);
+}
+
+static void guardOff(void)
+{
+  SetIntVec(AUTO_INT_1, oldInt1);
+}
+
 // ---------- host ----------
 
 // Everything to and from the ESP32 goes in the frames of the link layer
@@ -1325,8 +1363,10 @@ void _main(void)
   lk.hello = (unsigned short)FiftyMsecTick;
   tl_hello(&lk);
   OSFreeTimer(USER_TIMER);
+  guardOn();
 
   while (menu()) { }
 
+  guardOff();
   OSLinkReset();  // leave nothing behind for AMS to read as a packet
 }

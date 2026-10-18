@@ -456,6 +456,15 @@ This is about the screen only. The keyboard still types ASCII.
   the half byte once the line has been quiet for a few seconds, and
   `OSLinkReset` clears it at once. Before the link layer this garbled the
   screen; now the frames fail their check and are sent again.
+- **The OS draws the 2nd, shift and diamond indicators over the bottom row.**
+  It does so from auto-int 1, straight into the screen, and erases them to
+  white once the modifier is used, which left a hole in the bottom row and in
+  screenshots. Auto-int 1 also fills the keyboard queue, so it cannot be
+  turned off. While `term` runs, the OS's handler runs inside one of ours,
+  which saves the small box the indicators use (x 48 to 79, the last 7 pixel
+  rows) and puts it back afterwards. The indicators never show, so an armed
+  modifier cannot be seen on the screen. Measured with a test build: the OS
+  drew in pixel rows 123 to 127, x 48 to 63, and only from auto-int 1.
 - **The terminal type matters for keys.** Under `vt100`, programs have no
   code for Page Up and Page Down, and `less` only accepts the arrow keys'
   "application" codes, which it switches on at start. The terminal now
