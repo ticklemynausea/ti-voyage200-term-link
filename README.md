@@ -4,9 +4,8 @@
 
 ![A Voyage 200 running Claude Code, wired to an M5Stack Stamp S3 on a breadboard](docs/pics/stamp-s3-claude-code.png)
 
-A **TI Voyage 200** graphing calculator as a terminal to real computers, and
-the reverse engineering of its link port that led there. An ESP32 (Arduino
-framework) sits on the calculator's 2.5 mm link port and does the networking;
+A **TI Voyage 200** graphing calculator as a terminal to real computers. An
+ESP32 (Arduino framework) sits on the calculator's 2.5 mm link port and does the networking;
 the calculator draws the text and reads the keys. The ESP32 is either an
 M5Stack Stamp S3 on a breadboard or an M5Stack Cardputer, whose battery and
 screen make the setup portable.
@@ -97,16 +96,12 @@ The software to install and the quick start are in
 | **Calculator as a terminal** | The terminal program, the ESP32 bridge with SSH and stored Wi-Fi settings, and the script that joins a local shell to it. | [docs/terminal.md](docs/terminal.md) |
 | **Hardware** | Parts, wiring, a wiring check sketch, building and flashing. | [docs/hardware.md](docs/hardware.md) |
 | **tmux and screen** | Settings that fit several windows on the calculator's screen. | [docs/tmux-and-screen.md](docs/tmux-and-screen.md) |
-| **ESP32 as a link partner** | The ESP32 speaks TI's packet protocol, posing as a CBL data logger or another calculator, so TI-BASIC's `Send`, `Get` and `SendCalc` talk to it. | [docs/link-partner.md](docs/link-partner.md) |
-| **Calculator-to-calculator protocol** | The ESP32 listens passively between two Voyage 200s; twenty tests document what they say to each other. | [PROTOCOL.md](calc-to-calc-protocol-reversed/PROTOCOL.md), [its README](calc-to-calc-protocol-reversed/README.md) |
 | **Manual tests** | Tests run by hand on the calculator and the ESP32, by feature. | [docs/manual-tests.md](docs/manual-tests.md) |
 | **Repository** | The layout of the files, and the experiments that were removed. | [docs/repository.md](docs/repository.md) |
 
 ## Status
 
-This is a hobby project and a record of experiments, not a finished product.
-Treat the protocol notes as findings from these calculators, not as a
-specification.
+This is a hobby project, not a finished product.
 
 ## Credits
 

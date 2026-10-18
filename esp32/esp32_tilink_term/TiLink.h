@@ -3,7 +3,6 @@
  *
  * The TI bit-level handshake on the two link wires (tip + ring):
  * sendByte / recvByte. The terminal sketch uses it as a raw byte pipe.
- * Same driver as in esp32_tilink_cbl, without the frame layer.
  *
  * Wiring (Voyage 200 lines idle at 3.3 V, so an ESP32 connects directly):
  *   jack tip  (red)   -> 220 ohm -> tipPin

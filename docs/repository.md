@@ -4,12 +4,6 @@
 
 ```
 esp32/                               Arduino sketches (one folder per sketch)
-  esp32_tilink_cbl/                  the ESP32 as a link partner
-    esp32_tilink_cbl.ino               packet layer, decoders, Serial commands
-    TiLink.h, TiLink.cpp               bit-level link driver with error diagnostics
-  esp32_tilink_c2c/                  passive sniffer between two calculators
-    esp32_tilink_c2c.ino               sampler, packet printer, line history, Serial commands
-    BitDecoder.h                       passive bit decoder (plain C++, testable on a PC)
   esp32_tilink_term/                 carries calc/term's bytes to Serial or SSH
   esp32_tilink_linetest/             wiring check: prints tip/ring levels without driving them
 calc/                                C programs for the calculator (TIGCC / GCC4TI)
@@ -27,17 +21,11 @@ link/                                the link layer between calc/term and esp32_
   test/test_link.c                   runs it over a simulated line that garbles and slips (make link:test)
   library.properties                 lets the sketch take it as an Arduino library
 Makefile                             shortcuts for the terminal
-calc-to-calc-protocol-reversed/      the calculator-to-calculator protocol: documentation and data
-  README.md                            sniffer wiring, flashing, running a capture session
-  TESTS.md                             the test sequence (T00-T20)
-  PROTOCOL.md                          the reversed calculator-to-calculator protocol
-  captures/                            raw logs of every session, named by date and time
 docs/
   getting-started.md                 what to install, and the quick start
   terminal.md                        the terminal: running it, keys, how the pieces talk, findings
   tmux-and-screen.md                 several windows on the calculator's screen
   hardware.md                        parts, wiring, wiring check, building and flashing
-  link-partner.md                    the link-partner sketch and its protocol findings
   manual-tests.md                    tests run by hand on the hardware
   repository.md                      this file
   pics/                              photographs and screenshots
@@ -46,11 +34,9 @@ README.md                            what the project is, with pictures
 
 ## Removed experiments
 
-Earlier experiments were removed once the CBL sketch covered their ground.
-They are in the git history, last present in commit `d4abde0`:
+Earlier experiments were removed. They are in the git history, last present
+in commit `d4abde0`:
 
-- `esp32/esp32_tilink_sniffer/`: an early receive-only sniffer. It took part
-  in the handshake, unlike the passive c2c sniffer.
 - `esp32/esp32_tilink_pingpong/` with `calculator/pingpong.c`: a raw-byte link
   using a custom frame format instead of TI's packets.
   - It needs a C program on the calculator (GCC4TI).
@@ -62,4 +48,4 @@ They are in the git history, last present in commit `d4abde0`:
 
 ---
 
-[Project overview](../README.md) · [Getting started](getting-started.md) · [The terminal](terminal.md) · [tmux and screen](tmux-and-screen.md) · [Hardware](hardware.md) · [Link partner](link-partner.md) · [Repository](repository.md)
+[Project overview](../README.md) · [Getting started](getting-started.md) · [The terminal](terminal.md) · [tmux and screen](tmux-and-screen.md) · [Hardware](hardware.md) · [Repository](repository.md)

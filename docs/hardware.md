@@ -2,8 +2,7 @@
 
 ## Hardware
 
-- TI Voyage 200 (the TI-89 / TI-92 Plus family should behave the same way);
-  two of them for the calculator-to-calculator sniffer
+- TI Voyage 200 (the TI-89 / TI-92 Plus family should behave the same way)
 - One ESP32, either of:
   - M5Stack Stamp S3 (ESP32-S3) on a breadboard: [wiring](#wiring-stamp-s3).
     Every sketch here runs on it.
@@ -11,8 +10,7 @@
     and a keyboard: [wiring](#m5stack-cardputer). The terminal and the
     wiring check are built for it.
 
-  Other ESP32 boards should work with different pins, except that the c2c
-  sniffer uses ESP32-S3 features.
+  Other ESP32 boards should work with different pins.
 - 2.5 mm stereo (TRS) pigtail cables: one per calculator. The plug's moulded
   collar may need shaving down to seat fully in the Voyage 200's recessed port.
 - Two 220 ohm resistors
@@ -27,9 +25,6 @@ they idle at **3.3 V**, so the Stamp S3 is wired directly with no level shifter.
 | Red | Tip | 220 ohm -> G1 |
 | White | Ring | 220 ohm -> G5 |
 | Black | Sleeve | GND |
-
-For the sniffer, the second calculator's pigtail joins the same three rows;
-see [its README](../calc-to-calc-protocol-reversed/README.md#wiring).
 
 Measure your own calculator first (tip and ring against sleeve, calculator on,
 at the Home screen). If the lines idle at about 5 V, use a bidirectional level
@@ -119,7 +114,7 @@ With `arduino-cli` and the ESP32 board package installed, from the repo root
 
 ```sh
 arduino-cli compile --upload -p /dev/cu.usbmodemXXXX \
-  --fqbn esp32:esp32:m5stack_stamp_s3 esp32/esp32_tilink_cbl
+  --fqbn esp32:esp32:m5stack_stamp_s3 esp32/esp32_tilink_linetest
 arduino-cli monitor -p /dev/cu.usbmodemXXXX -c baudrate=115200
 ```
 
@@ -133,4 +128,4 @@ shortcut, `make esp32_stamps3:term:flash`, which finds the port by itself.
 
 ---
 
-[Project overview](../README.md) · [Getting started](getting-started.md) · [The terminal](terminal.md) · [tmux and screen](tmux-and-screen.md) · [Hardware](hardware.md) · [Link partner](link-partner.md) · [Repository](repository.md)
+[Project overview](../README.md) · [Getting started](getting-started.md) · [The terminal](terminal.md) · [tmux and screen](tmux-and-screen.md) · [Hardware](hardware.md) · [Repository](repository.md)
