@@ -43,7 +43,9 @@
 extern "C" {
 #endif
 
-#define TL_MAX_PAYLOAD 64
+/* Bigger frames spend less of the line on framing and acknowledgements:
+   64 gave 2013 B/s on /burst. The length byte allows up to 255. */
+#define TL_MAX_PAYLOAD 128
 #define TL_WINDOW 4
 #define TL_FLAG 0xC0
 #define TL_ESC 0xC1

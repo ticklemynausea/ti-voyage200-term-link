@@ -222,7 +222,7 @@ ESP32 and the computer the bytes are raw, with a few conventions built on
 the byte `0x1E`, which neither a keyboard nor a shell normally produces.
 
 **Frames.** `C0 | ctl | type | length | data | CRC | C0`, with the data at
-most 64 bytes and the CRC (CRC-16/CCITT) two bytes, low byte first. `C0`
+most 128 bytes and the CRC (CRC-16/CCITT) two bytes, low byte first. `C0`
 and `C1` never appear in UTF-8; when one of them is in a frame it goes as
 `C1` and the byte xor `0x20`, so text hardly ever needs it. A frame that is
 cut short, fails its CRC or has the wrong length is dropped, and the next
