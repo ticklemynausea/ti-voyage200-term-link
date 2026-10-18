@@ -239,8 +239,8 @@ waits for it to speak, which gives a slipped link the quiet it needs.
 | Type | Numbered | From | Data |
 |---|---|---|---|
 | ACK | no | both | none: only the acknowledgement |
-| HELLO | no | calculator | none. Starts the link afresh, sent when `term()` starts and when a menu resets the link |
-| HELLO_ACK | no | ESP32 | its two letters, picked at power-up. Different letters mean the ESP32 has restarted |
+| HELLO | no | calculator | the HELLO's number (2 bytes). Starts the link afresh, sent when `term()` starts and when a menu resets the link. A HELLO sent again because its answer was slow keeps its number, and the ESP32 only answers it again |
+| HELLO_ACK | no | ESP32 | the number of the HELLO it answers, then the ESP32's two letters, picked at power-up. The calculator takes only the answer to its latest HELLO. Different letters mean the ESP32 has restarted |
 | WHO | no | ESP32 | none. The answer to anything before a HELLO, which makes the calculator say HELLO again |
 | PING | no | calculator | none. Sent after 2 s without sending; the ESP32 answers with ACK |
 | DATA | yes | both | the session's bytes, as they are: keys, or the output |

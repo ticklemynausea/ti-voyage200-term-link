@@ -33,7 +33,7 @@ static unsigned char inFlight(const tl_link *t)
 
 static void resetSeq(tl_link *t)
 {
-  t->base = t->next = t->resend = t->expect = 0;
+  t->base = t->next = t->resend = t->expect = t->sentUpTo = 0;
   t->waitPeer = 0;
   t->ackDue = 0;
   t->txLen = t->txPos = 0;
@@ -60,6 +60,7 @@ void tl_hello(tl_link *t)
 {
   resetSeq(t);
   t->started = 0;
+  t->hello++;
   t->ctlDue = TL_HELLO;
 }
 
@@ -98,7 +99,6 @@ short tl_heard_within(const tl_link *t, unsigned long now, unsigned long ms)
 /* Sends again from the oldest frame not yet acknowledged. */
 static void goBack(tl_link *t, unsigned long now)
 {
-  t->framesResent += (t->resend - t->base) & 7;
   t->resend = t->base;
   t->waitPeer = 0;
   t->progressAt = now;
@@ -136,6 +136,7 @@ static void build(tl_link *t, unsigned char ctl, unsigned char type, const unsig
   put(t, (unsigned char)(crc >> 8));
   t->tx[t->txLen++] = TL_FLAG;
   t->ackDue = 0;  // every frame carries the ack
+  t->lineFramesOut++;
 }
 
 /* Puts the next frame in t->tx. Returns 0 if there is nothing to send. */
@@ -143,20 +144,38 @@ static short fill(tl_link *t, unsigned long now)
 {
   unsigned char ack = (unsigned char)(t->expect << 3);
   unsigned char type = t->ctlDue;
+  unsigned char data[2 + TL_MAX_ID];
+  short len = 0;
 
   t->txSeq = 0;
   if (type) {
     t->ctlDue = 0;
+    if (type == TL_HELLO || type == TL_HELLO_ACK) {
+      data[0] = (unsigned char)(t->hello & 0xFF);
+      data[1] = (unsigned char)(t->hello >> 8);
+      len = 2;
+    }
     if (type == TL_HELLO) t->helloAt = now;
-    build(t, ack, type, t->id, type == TL_HELLO_ACK ? t->idLen : 0);
+    if (type == TL_HELLO_ACK) {
+      memcpy(data + 2, t->id, t->idLen);
+      len += t->idLen;
+    }
+    build(t, ack, type, data, len);
     return 1;
   }
   if (t->started && !t->hold && !t->waitPeer && t->resend != t->next) {
     const tl_frame *f = &t->win[t->resend & (TL_WINDOW - 1)];
     build(t, (unsigned char)(CTL_SEQ | ack | t->resend), f->type, f->data, f->len);
+    if (((t->resend - t->base) & 7) < ((t->sentUpTo - t->base) & 7)) {
+      t->framesResent++;
+      t->bytesResent += f->len;
+    } else {
+      t->sentUpTo = (t->resend + 1) & 7;
+      t->framesSent++;
+      t->bytesSent += f->len;
+    }
     t->resend = (t->resend + 1) & 7;
     t->txSeq = 1;
-    t->framesSent++;
     return 1;
   }
   if (t->ackDue) {
@@ -170,6 +189,7 @@ short tl_tx_next(tl_link *t, unsigned long now)
 {
   if (t->txPos >= t->txLen && !fill(t, now)) return -1;
   t->lastTx = now;
+  t->lineBytesOut++;
   // A frame that is slow to go out (the receiver not taking it) is not late.
   if (t->txSeq) t->progressAt = now;
   return t->tx[t->txPos++];
@@ -223,17 +243,24 @@ static short frame(tl_link *t, unsigned long now)
   if (crc != (unsigned short)(t->rx[t->rxLen - 2] | (t->rx[t->rxLen - 1] << 8)) ||
       t->rx[2] != len || (ctl & 0x80) || !type || (type > TL_PING && type < TL_DATA) || type > TL_SHOT) {
     t->framesBad++;
+    t->bytesBad += t->rxCount;
     return 0;
   }
+  t->lineFramesIn++;
   t->heardOnce = 1;
   t->heardAt = now;
 
   if (t->role == TL_RESPONDER) {
     if (type == TL_HELLO) {
+      unsigned short hello;
+      if (len < 2) return 0;
+      hello = (unsigned short)(t->rx[3] | (t->rx[4] << 8));
+      t->ctlDue = TL_HELLO_ACK;
+      if (t->started && hello == t->hello) return 0;  // sent again: only the answer goes again
+      t->hello = hello;
       resetSeq(t);
       t->started = 1;
       t->progressAt = now;
-      t->ctlDue = TL_HELLO_ACK;
       t->in.type = TL_HELLO;
       t->in.len = 0;
       return TL_HELLO;
@@ -244,12 +271,13 @@ static short frame(tl_link *t, unsigned long now)
     }
   } else {
     if (type == TL_HELLO_ACK) {
-      if (t->started) return 0;  // a second answer to the same HELLO
+      // A second answer, or one to an older HELLO, is not taken.
+      if (t->started || len < 2 || (unsigned short)(t->rx[3] | (t->rx[4] << 8)) != t->hello) return 0;
       t->started = 1;
       t->progressAt = now;
       t->in.type = type;
-      t->in.len = (unsigned char)len;
-      memcpy(t->in.data, t->rx + 3, len);
+      t->in.len = (unsigned char)(len - 2);
+      memcpy(t->in.data, t->rx + 5, len - 2);
       return TL_HELLO_ACK;
     }
     if (type == TL_WHO) {
@@ -267,6 +295,7 @@ static short frame(tl_link *t, unsigned long now)
   out = inFlight(t);
   if (n && n <= out) {
     if (((t->resend - t->base) & 7) < n) t->resend = ack;
+    if (((t->sentUpTo - t->base) & 7) < n) t->sentUpTo = ack;
     t->base = ack;
     t->progressAt = now;
   } else if (!n && out && type == TL_ACK && t->resend == t->next) {
@@ -278,6 +307,8 @@ static short frame(tl_link *t, unsigned long now)
     t->ackDue = 1;
     if ((ctl & 7) != t->expect) return 0;
     t->expect = (t->expect + 1) & 7;
+    t->framesRecv++;
+    t->bytesRecv += len;
     t->in.type = type;
     t->in.len = (unsigned char)len;
     memcpy(t->in.data, t->rx + 3, len);
@@ -291,13 +322,19 @@ short tl_rx_byte(tl_link *t, unsigned char b, unsigned long now)
 {
   short r = 0;
 
+  t->lineBytesIn++;
   if (b == TL_FLAG) {
-    if (t->rxLen >= 5 && !t->rxBad && !t->rxEsc) r = frame(t, now);
-    else if (t->rxLen) t->framesBad++;
-    t->rxLen = 0;
+    if (t->rxLen >= 5 && !t->rxBad && !t->rxEsc) {
+      r = frame(t, now);
+    } else if (t->rxCount) {
+      t->framesBad++;
+      t->bytesBad += t->rxCount;
+    }
+    t->rxLen = t->rxCount = 0;
     t->rxEsc = t->rxBad = 0;
     return r;
   }
+  if (t->rxCount < 0x7FFF) t->rxCount++;
   if (t->rxBad) return 0;
   if (b == TL_ESC) {
     if (t->rxEsc) t->rxBad = 1;

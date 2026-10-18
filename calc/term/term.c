@@ -1273,6 +1273,9 @@ void _main(void)
   espIdKnown = 0;
   clearQueue();
   tl_init(&lk, TL_INITIATOR, RTO_MS, KEEPALIVE_MS);
+  // The ESP32 takes a HELLO with the number of the last one for that one
+  // sent again, so a new run must not start from the same number.
+  lk.hello = (unsigned short)FiftyMsecTick;
   tl_hello(&lk);
   OSFreeTimer(USER_TIMER);
 

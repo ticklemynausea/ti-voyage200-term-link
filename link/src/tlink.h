@@ -30,7 +30,10 @@
  * gets the quiet it needs to recover.
  *
  * The calculator starts the link (TL_INITIATOR): HELLO, answered by HELLO_ACK
- * with the ESP32's id, resets both sides' sequence numbers. The ESP32
+ * with the ESP32's id, resets both sides' sequence numbers. Each HELLO
+ * carries a number of its own, which the answer repeats: a HELLO sent again
+ * because its answer was slow only gets the answer again, not a second
+ * reset, and an answer to an older HELLO is not taken. The ESP32
  * (TL_RESPONDER) answers anything before a HELLO with WHO, which makes the
  * calculator say HELLO again: that is how a restarted ESP32 is noticed. The
  * initiator also sends PING when it has sent nothing for keepalive ms, which
@@ -54,8 +57,8 @@ extern "C" {
 /* Frame types. Those below TL_DATA are not sequenced. */
 enum {
   TL_ACK = 1,     /* nothing but the ack */
-  TL_HELLO,       /* calc -> ESP32: starts the link afresh */
-  TL_HELLO_ACK,   /* ESP32 -> calc: the answer, with the ESP32's id */
+  TL_HELLO,       /* calc -> ESP32: starts the link afresh; the HELLO's number (2 bytes) */
+  TL_HELLO_ACK,   /* ESP32 -> calc: the answer: that number, then the ESP32's id */
   TL_WHO,         /* ESP32 -> calc: no HELLO yet since the ESP32 started */
   TL_PING,        /* calc -> ESP32: keepalive, answered by ACK */
   TL_DATA = 0x10, /* terminal bytes: keys, or output */
@@ -83,6 +86,9 @@ typedef struct {
   unsigned char rxOpen;      /* sequenced frames are taken (the caller sets it) */
   unsigned char hold;        /* sequenced frames are not sent for now (the caller sets it) */
   unsigned char id[TL_MAX_ID], idLen;  /* responder: its id, sent in HELLO_ACK */
+  unsigned short hello;      /* initiator: the number of its HELLO; responder: of the last one heard.
+                                The initiator's caller seeds it after tl_init, so that a new run
+                                does not repeat the number of the run before. */
 
   /* sending */
   tl_frame win[TL_WINDOW];
@@ -98,18 +104,26 @@ typedef struct {
   unsigned char tx[2 * (TL_MAX_PAYLOAD + 5) + 2];
   short txLen, txPos;
   unsigned char txSeq;       /* the frame being handed out is sequenced */
+  unsigned char sentUpTo;    /* the seq after the last one ever put on the line */
 
   /* receiving */
   unsigned char expect;      /* the seq of the next frame to take */
   unsigned char rx[TL_MAX_PAYLOAD + 5];
   short rxLen;
+  short rxCount;             /* bytes of the frame so far, also those not kept */
   unsigned char rxEsc, rxBad;
   unsigned char heardOnce;
   unsigned long heardAt;     /* the last good frame */
   tl_frame in;               /* the frame tl_rx_byte returned */
 
-  /* statistics */
-  unsigned long framesSent, framesResent, framesBad;
+  /* statistics, each in frames and in bytes: the payload's bytes, except
+     for bad frames and the line's, which count the bytes as on the wire */
+  unsigned long framesSent, bytesSent;      /* sequenced frames sent, the first time */
+  unsigned long framesResent, bytesResent;  /* sequenced frames sent again */
+  unsigned long framesRecv, bytesRecv;      /* sequenced frames taken from the other side */
+  unsigned long framesBad, bytesBad;        /* dropped: cut short, failed CRC, wrong length or type */
+  unsigned long lineFramesOut, lineBytesOut;  /* all frames handed out, acknowledgements too */
+  unsigned long lineFramesIn, lineBytesIn;    /* all good frames and all bytes taken in */
 } tl_link;
 
 void tl_init(tl_link *t, unsigned char role, unsigned short rtoMs, unsigned short keepaliveMs);
@@ -117,8 +131,9 @@ void tl_init(tl_link *t, unsigned char role, unsigned short rtoMs, unsigned shor
 /* Responder: the id sent in every HELLO_ACK, up to TL_MAX_ID bytes. */
 void tl_set_id(tl_link *t, const unsigned char *id, short len);
 
-/* Initiator: starts the link afresh. Whatever is queued is dropped, also a
-   frame half handed out; nothing sequenced goes out until HELLO_ACK. */
+/* Initiator: starts the link afresh, with a new HELLO number. Whatever is
+   queued is dropped, also a frame half handed out; nothing sequenced goes
+   out until HELLO_ACK. */
 void tl_hello(tl_link *t);
 
 /* Queues a sequenced frame. Returns 0 if the window is full or len too big. */
@@ -136,7 +151,8 @@ short tl_tx_idle(const tl_link *t);
 
 /* Takes one byte from the line. Returns the type of a frame for the caller,
    with t->in holding it, or 0. The caller gets the sequenced frames (each
-   once, in order), HELLO_ACK on the initiator and HELLO on the responder. */
+   once, in order), HELLO_ACK on the initiator (with only the id in t->in)
+   and a new link's HELLO on the responder. */
 short tl_rx_byte(tl_link *t, unsigned char b, unsigned long now);
 
 /* Timers: resends, the initiator's HELLO and PING. Call it often. */

@@ -178,6 +178,7 @@ static int run(const scenario *sc)
   memset(&s, 0, sizeof(s));
   seed = firstSeed;
   tl_init(&s.calc, TL_INITIATOR, 500, 2000);
+  s.calc.hello = (unsigned short)rnd();
   startEsp(&s, "AB");
   tl_hello(&s.calc);
   s.totalUp = s.totalDown = (unsigned long)-1;  /* stream for the whole scenario */
@@ -203,6 +204,16 @@ static int run(const scenario *sc)
   }
   if (!s.failed && !sc->restartAt && s.helloAcks != 1) {
     printf("    FAIL: %d HELLO_ACKs, expected 1\n", s.helloAcks);
+    s.failed = 1;
+  }
+  /* Each frame sent the first time arrived once, however often it was sent. */
+  if (!s.failed && !sc->restartAt &&
+      (s.calc.framesRecv != s.esp.framesSent || s.calc.bytesRecv != s.esp.bytesSent ||
+       s.esp.framesRecv != s.calc.framesSent || s.esp.bytesRecv != s.calc.bytesSent ||
+       s.calc.bytesRecv != s.gotDown || s.esp.bytesRecv != s.gotUp)) {
+    printf("    FAIL: counts disagree: down %lu/%lu frames %lu/%lu bytes, up %lu/%lu frames %lu/%lu bytes\n",
+           s.calc.framesRecv, s.esp.framesSent, s.calc.bytesRecv, s.esp.bytesSent,
+           s.esp.framesRecv, s.calc.framesSent, s.esp.bytesRecv, s.calc.bytesSent);
     s.failed = 1;
   }
 
