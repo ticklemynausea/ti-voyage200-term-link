@@ -4,21 +4,21 @@
 KEYS IN A SESSION
 
 2nd + ESC          back to the menu (diamond + ESC too)
-diamond + letter   Ctrl + letter
-                     diamond + C  stop the program
-                     diamond + D  end of input, log out
-                     diamond + Z  suspend
-                     diamond + L  redraw the screen
-                     diamond + I  Tab (2nd + I: Shift-Tab)
+diamond + letter   Ctrl + letter: C stop, D log out,
+                   Z suspend, L redraw, I Tab (2nd + I:
+                   Shift-Tab), space Ctrl-Space
+shift + Hand       Alt: the next key goes after an ESC
 diamond + up/down  Page Up / Page Down
 diamond + l/r      a word back / forward (ESC B, ESC F)
+Hand + arrows      Ctrl + arrows (shift + arrows: Shift)
 2nd + up/down      Home / End (2nd + left/right too)
 2nd + plus         symbols the keyboard lacks: a strip
                    opens on the bottom rows, a letter picks
-F1 to F8           the function keys
+F1 to F8           the function keys; diamond + F1 to F4
+                   are F9 to F12
 2nd + APPS         screenshot, saved on the computer
+2nd + backspace    Insert; diamond + backspace: Delete
 ENTER, ESC, the arrows and backspace do what they say.
-diamond + backspace deletes forwards.
 The divide key types /   Use the minus key for -
 Ctrl with a symbol (Ctrl-], Ctrl-\) cannot be typed.
 ----

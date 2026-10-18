@@ -303,15 +303,21 @@ cannot switch the mode behind its back.
 | ENTER | carriage return |
 | backspace | DEL (code 127), which shells take as "erase one character" |
 | ◆ + backspace (DEL) | Delete, which erases forwards (`ESC [ 3 ~`) |
+| 2nd + backspace (INS) | Insert (`ESC [ 2 ~`) |
 | ESC | Escape |
 | arrows | the arrow keys |
 | ◆ + letter | Ctrl + letter (the keyboard has no Ctrl key) |
+| ◆ + space | Ctrl-Space (NUL, code 0) |
+| shift + Hand | nothing itself: the next key goes out after an ESC, which is Alt + that key. Pressed again, it is called off |
 | 2nd + I | Shift-Tab (`ESC [ Z`). Tab is ◆ + I, and shift cannot be added to that |
 | ◆ + up / down | Page Up / Page Down |
 | ◆ + left / right | Alt-B / Alt-F (`ESC b`, `ESC f`): a word back / forward in the shell. ESC then B or F does the same |
+| Hand + arrows | Ctrl + arrows (`ESC [ 1 ; 5 A` and so on) |
+| shift + arrows | Shift + arrows (`ESC [ 1 ; 2 A` and so on) |
 | 2nd + up / down | Home / End (2nd + left / right too) |
 | 2nd + plus (CHAR) | a symbol the keyboard lacks, picked from a strip on the bottom two rows |
 | F1 to F8 | the function keys |
+| ◆ + F1 to F4 | F9 to F12 |
 | 2nd + ESC (QUIT) | nothing: goes back to the menu. ◆ + ESC does the same |
 | 2nd + APPS | nothing: takes a [screenshot](#screenshots), in the menus too |
 
@@ -337,6 +343,17 @@ with 2nd, and ◆ + 2nd + a key sends nothing: tried with `]`, which is 2nd +
 divide. So there is no Ctrl-] or Ctrl-\. Ctrl-[ is not missed, since it is
 the ESC key.
 
+**Alt.** The keyboard has no Alt key, and a terminal sends Alt + a key as
+ESC followed by that key. Shift + Hand gives the next key that ESC, in one
+go, so a program that waits only briefly after an ESC (vim, tmux) still
+sees one key. It works with any key: shift + Hand then `.` puts in the last
+command's last argument in bash or zsh, then `d` deletes a word forward,
+then backspace a word back. Nothing on the screen shows that it is waiting
+for a key, since the OS's own indicators are kept off it (see the findings).
+Hand alone cannot be the Alt key: with anything but an arrow it gives no
+code at all. ESC and then the key does the same, as long as the program
+does not take the ESC on its own first.
+
 **Symbols.** 2nd + plus shows a strip on the bottom two rows with each
 symbol next to a letter, `a` to `v`, drawn as a key in reverse video. The
 letter picks the symbol, and any other key closes the strip. Here the keys
@@ -361,11 +378,20 @@ has to be told the sequence. For nchat that is
 is not running.
 
 **Function keys.** F1 to F4 send `ESC O P` to `ESC O S`; F5 to F8 send
-`ESC [ 15 ~`, `17 ~`, `18 ~` and `19 ~`.
+`ESC [ 15 ~`, `17 ~`, `18 ~` and `19 ~`. ◆ + F1 to F4 are F9 to F12:
+`ESC [ 20 ~`, `21 ~`, `23 ~` and `24 ~`. htop takes F9 to kill a process
+and F10 to quit, and so does mc's F10.
+
+**Arrows with a modifier.** Hand + an arrow sends Ctrl + that arrow, which
+moves a word in zsh, emacs and vim's insert mode. Shift + an arrow sends
+Shift + it, which some editors take for selecting. These are sent as xterm
+does (`ESC [ 1 ; 5 D` is Ctrl + left), also while a program has asked for
+the application codes.
 
 **Finding a key's code.** The Debug menu's Key codes entry shows the number
-the calculator gives for each key or combination. 2nd adds 4096 and ◆ adds
-8192 to the key's own code.
+the calculator gives for each key or combination. 2nd adds 4096, ◆ adds
+8192 and shift 16384 to the key's own code, and Hand adds 32768 to the
+arrows.
 
 The menu's first line shows when the program was built and from which
 commit, with a `+` after it if there were changes not yet committed, which
@@ -437,7 +463,11 @@ This is about the screen only. The keyboard still types ASCII.
   8530), as TIGCC's key table says. On the TI-89 the number is 16384.
 - **2nd + key arrives as 4096 + the key's code** when the combination is a
   function rather than a character: 2nd + plus is 4139. The CHAR menu
-  belongs to AMS, hence the program's own symbol strip.
+  belongs to AMS, hence the program's own symbol strip. With the F keys 2nd
+  changes nothing (2nd + F1 is F1, 268), while ◆ adds 8192 (◆ + F1 is 8460).
+- **Hand adds 32768, but only to the arrows** (Hand + left is 33105). Hand
+  with a letter or backspace puts nothing in the keyboard queue. Shift +
+  Hand is a key of its own, 380, which the program uses for Alt.
 - **The link held up in a burst test:** 7083 bytes to the calculator with
   none dropped and no retries, and 127 bytes back from typing meanwhile.
 - **Serial output has to be paced.** The link carries about 3 KB/s, far

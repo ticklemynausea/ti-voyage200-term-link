@@ -167,6 +167,25 @@ The OS's 2nd, shift and diamond indicators are kept off the screen while
 | I06 | pass | Keys still work: 2nd + ESC, diamond + C, 2nd + divide (`]`), shift + a letter, a held key repeating. | All as before. |
 | I07 | pass | Quit `term`, then press 2nd on the Home screen. | The OS's own indicator shows there as usual: the handler was taken out. |
 
+## More keys: Alt, F9 to F12, Insert, modified arrows
+
+In a Serial or SSH session. `cat -v` shows the bytes a key sends: run it,
+press the keys, then ◆ + D. Run them in bash (or zsh) where a step says so.
+
+| ID | Result | Steps | Expected |
+|---|---|---|---|
+| X01 |  | bash: `echo one two`, ENTER; then `ls `, shift + Hand, `.`. | `two` is put in after `ls `. |
+| X02 |  | bash: type `one two three`, press 2nd + left (Home), then shift + Hand, `d`. | `one` is deleted. |
+| X03 |  | bash: type `one two`, then shift + Hand, backspace. | `two` is deleted. |
+| X04 |  | bash: shift + Hand, shift + Hand, `d`. | A plain `d` is typed: the second press called Alt off. |
+| X05 |  | `cat -v`: Hand + left, right, up, down. | `^[[1;5D^[[1;5C^[[1;5A^[[1;5B` |
+| X06 |  | `cat -v`: shift + left, right, up, down. | `^[[1;2D^[[1;2C^[[1;2A^[[1;2B` |
+| X07 |  | `cat -v`: ◆ + F1, F2, F3, F4. | `^[[20~^[[21~^[[23~^[[24~` |
+| X08 |  | `cat -v`: 2nd + backspace, then ◆ + space. | `^[[2~^@` |
+| X09 |  | `htop`: ◆ + F1, ESC, then ◆ + F2. | F9 opens the kill menu, ESC closes it, F10 quits. |
+| X10 |  | zsh or `vim` insert mode: Hand + left / right. | The cursor moves a word at a time. |
+| X11 |  | Debug, Key codes: shift + Hand. | `380` is printed, and the next key prints its code as usual. |
+
 ## Soak tests: long, heavy streams
 
 The hardest cases, so they come last: run them once everything above

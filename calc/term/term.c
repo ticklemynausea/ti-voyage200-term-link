@@ -10,7 +10,12 @@
 //   diamond + letter   Ctrl + letter
 //   diamond + up/down  Page Up / Page Down
 //   diamond + left/right  a word back / forward (Alt-B / Alt-F)
+//   diamond + space    Ctrl-Space (NUL)
+//   diamond + F1 to F4 F9 to F12
+//   shift + Hand       Meta: the next key goes out after an ESC
+//   Hand + arrow       Ctrl + arrow; shift + arrow sends Shift + arrow
 //   2nd + up/down      Home / End (2nd + left/right too)
+//   2nd + backspace    Insert
 //   2nd + plus (CHAR)  symbols the keyboard lacks: pick one by its letter
 //   2nd + ESC (QUIT)   back to the menu; diamond + ESC does the same
 //   2nd + APPS         sends the screen to the computer, as a screenshot
@@ -39,6 +44,10 @@
 // 2nd + I arrives as the character it types on the calculator, the
 // imaginary i. It stands in for Shift-Tab, next to diamond + I for Tab.
 #define KEY_BACK_TAB 151
+// Hand adds 32768, but only to the arrows: with any other key it gives
+// nothing. Shift + Hand is a key of its own, 380, which stands in for Meta.
+#define KEY_HAND 32768
+#define KEY_META 380
 
 // ---------- screen ----------
 
@@ -744,6 +753,24 @@ static void hostSend(const char *s, short len)
 
 static void *keyQueue;
 
+// Set by the Meta key: the next key's bytes go out after an ESC, which is
+// how a terminal sends Alt + that key.
+static short metaPending;
+
+// Sends a key's bytes, the ESC of a pending Meta in front, in one go.
+static void keySend(const char *s, short len)
+{
+  char buf[8];
+  if (metaPending && len < (short)sizeof(buf)) {
+    buf[0] = 0x1B;
+    memcpy(buf + 1, s, len);
+    s = buf;
+    len++;
+  }
+  metaPending = 0;
+  hostSend(s, len);
+}
+
 #define SHOT_PIECE 60                        // bytes of the screen in a SHOT frame
 #define SHOT_PIECES (LCD_SIZE / SHOT_PIECE)  // 64
 #define SCREEN_PATIENCE 100                  // ticks of 50 ms without room in the window
@@ -829,7 +856,7 @@ static void charMenu(void)
   memcpy(top, saved, sizeof(saved));
 
   if (key >= 'A' && key <= 'Z') key += 'a' - 'A';
-  if (key >= 'a' && key < 'a' + sizeof(SYMBOLS) - 1) hostSend(&SYMBOLS[key - 'a'], 1);
+  if (key >= 'a' && key < 'a' + sizeof(SYMBOLS) - 1) keySend(&SYMBOLS[key - 'a'], 1);
 }
 
 static void sendArrow(char letter)
@@ -838,7 +865,33 @@ static void sendArrow(char letter)
   code[0] = 0x1B;
   code[1] = (appCursorKeys && online) ? 'O' : '[';
   code[2] = letter;
-  hostSend(code, 3);
+  keySend(code, 3);
+}
+
+// An arrow with a modifier, as xterm sends it: ESC [ 1 ; mod letter, in
+// application cursor mode too. mod is 2 for Shift, 5 for Ctrl.
+static void sendModArrow(char mod, char letter)
+{
+  char code[6];
+  code[0] = 0x1B;
+  code[1] = '[';
+  code[2] = '1';
+  code[3] = ';';
+  code[4] = mod;
+  code[5] = letter;
+  keySend(code, 6);
+}
+
+// The arrow keys' letters in their codes, or 0 for any other key.
+static char arrowLetter(unsigned short key)
+{
+  switch (key) {
+    case KEY_UP: return 'A';
+    case KEY_DOWN: return 'B';
+    case KEY_RIGHT: return 'C';
+    case KEY_LEFT: return 'D';
+  }
+  return 0;
 }
 
 static short isQuitKey(unsigned short key)
@@ -852,34 +905,50 @@ static void handleKey(unsigned short key)
   static const char *const FUNCTION_KEYS[] = {
     "\x1BOP", "\x1BOQ", "\x1BOR", "\x1BOS", "\x1B[15~", "\x1B[17~", "\x1B[18~", "\x1B[19~"
   };
+  // F9 to F12, on diamond + F1 to F4.
+  static const char *const HIGH_FUNCTION_KEYS[] = {
+    "\x1B[20~", "\x1B[21~", "\x1B[23~", "\x1B[24~"
+  };
   char c;
 
+  if (key == KEY_META) {
+    metaPending = !metaPending;  // pressed again, it is called off
+    return;
+  }
   if (key == KEY_2ND + '+') {
     charMenu();
   } else if (key == KEY_DIAMOND + KEY_BACKSPACE) {
-    hostSend("\x1B[3~", 4);  // DEL on the keyboard: deletes forwards
+    keySend("\x1B[3~", 4);  // DEL on the keyboard: deletes forwards
+  } else if (key == KEY_2ND + KEY_BACKSPACE) {
+    keySend("\x1B[2~", 4);  // INS on the keyboard
   } else if (key == KEY_BACK_TAB) {
-    hostSend("\x1B[Z", 3);
+    keySend("\x1B[Z", 3);
+  } else if (key == KEY_DIAMOND + ' ') {
+    keySend("", 1);  // Ctrl-Space: NUL
   } else if (key >= KEY_DIAMOND + '@' && key <= KEY_DIAMOND + '_') {
     c = key - KEY_DIAMOND - '@';
-    hostSend(&c, 1);
+    keySend(&c, 1);
   } else if (key >= KEY_DIAMOND + 'a' && key <= KEY_DIAMOND + 'z') {
     c = key - KEY_DIAMOND - 'a' + 1;
-    hostSend(&c, 1);
+    keySend(&c, 1);
   } else if (key == KEY_ENTER) {
-    hostSend("\r", 1);
+    keySend("\r", 1);
   } else if (key == KEY_BACKSPACE) {
-    hostSend("\x7F", 1);
+    keySend("\x7F", 1);
   } else if (key == KEY_ESC) {
-    hostSend("\x1B", 1);
+    keySend("\x1B", 1);
   } else if (key == KEY_DIAMOND + KEY_UP) {
-    hostSend("\x1B[5~", 4);
+    keySend("\x1B[5~", 4);
   } else if (key == KEY_DIAMOND + KEY_DOWN) {
-    hostSend("\x1B[6~", 4);
+    keySend("\x1B[6~", 4);
   } else if (key == KEY_DIAMOND + KEY_LEFT) {
-    hostSend("\x1B" "b", 2);  // Alt-B: a word back in the shell
+    keySend("\x1B" "b", 2);  // Alt-B: a word back in the shell
   } else if (key == KEY_DIAMOND + KEY_RIGHT) {
-    hostSend("\x1B" "f", 2);  // Alt-F: a word forward
+    keySend("\x1B" "f", 2);  // Alt-F: a word forward
+  } else if (key > KEY_HAND && arrowLetter(key - KEY_HAND)) {
+    sendModArrow('5', arrowLetter(key - KEY_HAND));
+  } else if (key > KEY_SHIFT && key < KEY_HAND && arrowLetter(key - KEY_SHIFT)) {
+    sendModArrow('2', arrowLetter(key - KEY_SHIFT));
   } else if (key == KEY_2ND + KEY_UP || key == KEY_2ND + KEY_LEFT) {
     sendArrow('H');  // Home and End use the arrow keys' code family
   } else if (key == KEY_2ND + KEY_DOWN || key == KEY_2ND + KEY_RIGHT) {
@@ -894,11 +963,15 @@ static void handleKey(unsigned short key)
     sendArrow('D');
   } else if (key >= KEY_F1 && key <= KEY_F8) {
     const char *code = FUNCTION_KEYS[key - KEY_F1];
-    hostSend(code, strlen(code));
+    keySend(code, strlen(code));
+  } else if (key >= KEY_DIAMOND + KEY_F1 && key <= KEY_DIAMOND + KEY_F4) {
+    const char *code = HIGH_FUNCTION_KEYS[key - KEY_DIAMOND - KEY_F1];
+    keySend(code, strlen(code));
   } else if (key >= 32 && key < 127) {
     c = key;
-    hostSend(&c, 1);
+    keySend(&c, 1);
   }
+  metaPending = 0;  // a key that sends nothing uses it up too
 }
 
 // ---------- sessions ----------
@@ -953,6 +1026,7 @@ static void session(short mode)
 
   online = mode < MODE_LOCAL;
   bannerShown = 0;
+  metaPending = 0;
   termPuts("\x1B" "c");
   if (mode == MODE_LOCAL) termPuts("[local echo, 2nd+ESC for the menu]\r\n");
   if (mode == MODE_KEY_CODES) termPuts("[key codes, 2nd+ESC for the menu]\r\n");
