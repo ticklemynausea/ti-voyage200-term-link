@@ -1,7 +1,8 @@
 // A dumb terminal for the TI Voyage 200, built with TIGCC / GCC4TI.
 //
 // 60 x 21 characters in a 4x6 cell, with a subset of the VT220 escape codes.
-// Keys go out of the link port as raw bytes, and whatever comes in is drawn.
+// Keys go out of the link port, and whatever comes in is drawn, in the frames
+// of the link layer in link/src/tlink.c, which is built into this program.
 // The other end is the ESP32 running esp32/esp32_tilink_term, which the menu
 // tells where to carry the bytes: to its USB serial port or to an SSH host.
 //
@@ -21,6 +22,7 @@
 #include "font.h"
 #include "help.h"
 #include "version.h"
+#include "tlink.h"
 
 #define COLS 60
 #define ROWS 21
@@ -172,18 +174,11 @@ static void moveTo(short col, short row)
 
 // ---------- escape codes ----------
 
-// The states from ST_MARK on read the ESP32's answers, which can arrive
-// between any two bytes of the output.
-enum { ST_TEXT, ST_ESC, ST_CSI, ST_SKIP, ST_OSC, ST_OSC_ESC, ST_MARK, ST_STATUS, ST_PING };
+enum { ST_TEXT, ST_ESC, ST_CSI, ST_SKIP, ST_OSC, ST_OSC_ESC };
 
 #define MAX_PARAMS 4
-#define LINK_MARK 0x1E
 
 static short state;
-static short markReturn;  // the state the output was in when an answer began
-static char espId[2];     // from the answer to LINK_MARK 'y': changes when the ESP32 restarts
-static short espIdLen;
-static short pingAnswered;
 static short params[MAX_PARAMS];
 static short paramCount;
 static short privateSeq;  // the sequence began with '?', '>' or '<'
@@ -407,16 +402,6 @@ static void putText(unsigned char c)
 
 static void termPutc(unsigned char c)
 {
-  // An answer from the ESP32 (or a late one meant for the menu) is taken
-  // out, and an escape sequence it fell into carries on after it. A real
-  // LINK_MARK in the output arrives doubled; the second one ends ST_MARK
-  // like any letter that is not an answer, and draws nothing.
-  if (c == LINK_MARK && state < ST_MARK) {
-    markReturn = state;
-    state = ST_MARK;
-    return;
-  }
-
   switch (state) {
     case ST_TEXT:
       putText(c);
@@ -467,24 +452,6 @@ static void termPutc(unsigned char c)
       // anything else (spaces and such) belongs to the sequence: ignore it
       break;
 
-    case ST_MARK:
-      espIdLen = 0;
-      state = (c == 'w') ? ST_STATUS : (c == 'y') ? ST_PING : markReturn;
-      break;
-
-    case ST_STATUS:
-      if (c == '\n') state = markReturn;
-      break;
-
-    case ST_PING:
-      if (c == '\n') {
-        state = markReturn;
-        pingAnswered = 1;
-      } else if (espIdLen < (short)sizeof(espId)) {
-        espId[espIdLen++] = c;
-      }
-      break;
-
     case ST_SKIP:
       if (escIntermediate == '(') lineDrawing = (c == '0');
       state = ST_TEXT;
@@ -505,12 +472,16 @@ static void termPuts(const char *s)
 
 // ---------- host ----------
 
+// Everything to and from the ESP32 goes in the frames of the link layer
+// (link/src/tlink.h): each is checked, acknowledged, and sent again if it was
+// lost, so nothing arrives garbled, not even after the cable was replugged.
 // The link is interrupt driven: AMS moves bytes between the port and its
 // transmit and receive queues in the background, and these calls only touch
 // the queues. Nothing here uses TI's packet protocol.
 //
-// A session starts by telling the ESP32 where the bytes should go, with LINK_MARK
-// and a letter, and ends with LINK_MARK 'x'. A real LINK_MARK byte is sent twice.
+// The session's bytes go in DATA frames. A session starts by telling the
+// ESP32 where they should go, with a CMD frame and a letter, and ends with
+// CMD 'x'.
 
 enum {
   MODE_SERIAL, MODE_SSH, MODE_WIFI, MODE_SSH_HOST, MODE_SSH_KEY, MODE_SSH_COPY,  // through the link
@@ -524,47 +495,161 @@ static const char MODE_LETTERS[] = "shnkgij";
 static short online;  // the session's bytes go out of the link
 
 // The ESP32 keeps up to MAX_HOSTS SSH hosts, one for each of F1 to F8, and
-// up to MAX_NETWORKS Wi-Fi networks. The one a session is about is told to
-// it with LINK_MARK and its digit, before the session's letter.
+// up to MAX_NETWORKS Wi-Fi networks. The one a session is about goes in its
+// CMD frame, after the letter.
 #define MAX_HOSTS 8
 #define MAX_NETWORKS 4
 static short hostSlot;  // from 1; in the Wi-Fi menu, the network
 
-static void linkCommand(char letter)
+#define RTO_MS 500         // a frame not acknowledged by then is sent again
+#define KEEPALIVE_MS 2000  // a PING after this long without sending: the ESP32 hears the calculator
+
+static tl_link lk;
+static unsigned char rxBuf[64];
+static short rxLen, rxPos;
+
+// The ESP32's id, from the answer to the link's HELLO. A new one means the
+// ESP32 has restarted.
+static unsigned char espId[2];
+static short espIdKnown;
+
+// What waits for room in the link's window, in order, as records of a frame
+// type, a length and the frame's bytes. Keys typed one after another join
+// the same DATA record.
+#define OUT_QUEUE 128
+static unsigned char outQueue[OUT_QUEUE];
+static short outQueueLen;
+static short lastData;  // where the last record starts while it is DATA and still queued, or -1
+
+static unsigned long nowMs(void)
 {
-  char command[2];
-  command[0] = LINK_MARK;
-  command[1] = letter;
-  OSWriteLinkBlock(command, 2);
+  return FiftyMsecTick * 50UL;
 }
 
-// After the cable came out and went back in, the OS's side of the link can be
-// stuck part way through a byte, so that nothing the ESP32 sends reads right
-// any more; only a reset clears that. A reset drops what is queued and cuts
-// off a byte under way, so it is done only in a menu that has had no answer
-// for a while: the ESP32's answers are short, so a reset almost always falls
-// between them, and the next question gets through.
+// Returns 0 when there is no room: nothing has been taking frames for a
+// while (nobody is listening), and they are dropped rather than left to
+// pile up.
+static short queueFrame(unsigned char type, const void *data, short len)
+{
+  if (type == TL_DATA && lastData >= 0 && outQueue[lastData + 1] + len <= TL_MAX_PAYLOAD &&
+      outQueueLen + len <= OUT_QUEUE) {
+    memcpy(outQueue + outQueueLen, data, len);
+    outQueue[lastData + 1] += len;
+    outQueueLen += len;
+    return 1;
+  }
+  if (outQueueLen + 2 + len > OUT_QUEUE) return 0;
+  lastData = type == TL_DATA ? outQueueLen : -1;
+  outQueue[outQueueLen] = type;
+  outQueue[outQueueLen + 1] = len;
+  memcpy(outQueue + outQueueLen + 2, data, len);
+  outQueueLen += 2 + len;
+  return 1;
+}
+
+static void clearQueue(void)
+{
+  outQueueLen = 0;
+  lastData = -1;
+}
+
+// Moves the link along: queued frames into the window, and what is due onto
+// the line, as far as the OS's transmit queue has room.
+static void linkTransmit(unsigned long now)
+{
+  unsigned char buf[32];
+  short room, n, b, size;
+
+  while (outQueueLen && tl_window_free(&lk)) {
+    size = 2 + outQueue[1];
+    tl_send(&lk, outQueue[0], outQueue + 2, outQueue[1]);
+    outQueueLen -= size;
+    memmove(outQueue, outQueue + size, outQueueLen);
+    lastData = lastData >= size ? lastData - size : -1;
+  }
+  tl_poll(&lk, now);
+  room = OSLinkTxQueueInquire();
+  if (room > (short)sizeof(buf)) room = sizeof(buf);
+  for (n = 0; n < room && (b = tl_tx_next(&lk, now)) >= 0; n++) buf[n] = b;
+  if (n) OSWriteLinkBlock((char *)buf, n);
+}
+
+// Moves the link along and returns the next frame from the ESP32, with
+// lk.in holding it, or 0 when none has come. While lk.rxOpen is 0 the
+// ESP32's sequenced frames are left: they come again later.
+static short linkNext(void)
+{
+  unsigned long now = nowMs();
+  short type;
+
+  for (;;) {
+    if (rxPos >= rxLen) {
+      rxPos = 0;
+      rxLen = OSReadLinkBlock((char *)rxBuf, sizeof(rxBuf));
+      if (rxLen <= 0) {
+        rxLen = 0;
+        break;
+      }
+    }
+    type = tl_rx_byte(&lk, rxBuf[rxPos++], now);
+    if (type == TL_HELLO_ACK && lk.in.len >= 2) {
+      memcpy(espId, lk.in.data, sizeof(espId));
+      espIdKnown = 1;
+    }
+    if (type) {
+      linkTransmit(now);  // the acknowledgement goes at once
+      return type;
+    }
+  }
+  linkTransmit(now);
+  return 0;
+}
+
+// While nothing can be drawn: the link carries on, and what the ESP32
+// sends meanwhile comes again later.
+static void linkWait(void)
+{
+  short wasOpen = lk.rxOpen;
+  lk.rxOpen = 0;
+  while (linkNext()) { }
+  lk.rxOpen = wasOpen;
+}
+
+static void linkCommand(char letter, short slot)
+{
+  unsigned char command[2];
+  command[0] = letter;
+  command[1] = slot;
+  queueFrame(TL_CMD, command, slot ? 2 : 1);
+}
+
+// Starts the link afresh, and the OS's side of it too: what is queued is
+// dropped. Done when a menu has had no answer for a while: after the cable
+// came out and went back in, the OS's side of the link can be stuck.
 // The reset may have dropped the 'x' that ended the last session, so it is
 // sent again; with no session going it does nothing.
 static void resetLink(void)
 {
   OSLinkReset();
   OSLinkOpen();
-  linkCommand('x');
+  rxLen = rxPos = 0;
+  clearQueue();
+  tl_hello(&lk);
+  linkCommand('x', 0);
 }
 
 // Sends bytes towards the host. In a local session it echoes them the way a
 // shell would, so the terminal can be tried on its own.
 static void hostSend(const char *s, short len)
 {
+  if (online) {
+    // A key sequence goes whole or not at all.
+    queueFrame(TL_DATA, s, len);
+    return;
+  }
   while (len--) {
     char c = *s++;
-    if (online) {
-      // Fails when the transmit queue is full (nobody is listening): the
-      // keys are dropped rather than left to pile up.
-      if (c == LINK_MARK) OSWriteLinkBlock(&c, 1);
-      OSWriteLinkBlock(&c, 1);
-    } else if (c == '\r') {
+    if (c == '\r') {
       termPuts("\r\n");
     } else if (c == 0x7F) {
       termPuts("\b \b");
@@ -578,50 +663,49 @@ static void hostSend(const char *s, short len)
 
 static void *keyQueue;
 
-#define SCREEN_PIECE 64
-#define SCREEN_PATIENCE 1000  // wake-ups with no room in the queue: a few seconds
+#define SHOT_PIECE 60                        // bytes of the screen in a SHOT frame
+#define SHOT_PIECES (LCD_SIZE / SHOT_PIECE)  // 64
+#define SCREEN_PATIENCE 100                  // ticks of 50 ms without room in the window
 
 // Sends the screen as it is to the ESP32, which passes it to the computer:
-// LINK_MARK 'p' and the LCD's bytes, unescaped since their number is fixed.
-// The OS's transmit queue is small, so the bytes go in pieces as it empties.
-// If it stays full nobody is listening, and what is queued is thrown away.
+// SHOT frames of a piece number and SHOT_PIECE of the LCD's bytes. Nothing
+// is drawn meanwhile, so what the ESP32 sends is left for later. If the
+// window stays full nobody is listening, and the rest is not sent.
 static void sendScreen(void)
 {
-  const char *p = (const char *)lcd;
-  unsigned short left = LCD_SIZE;
-  unsigned short waited = 0;
-  short started = 0;
-  short n;
+  unsigned char piece[1 + SHOT_PIECE];
+  unsigned long waited = FiftyMsecTick;
+  short wasOpen = lk.rxOpen;
+  short i = 0;
 
-  while (left) {
-    n = OSLinkTxQueueInquire();
-    if (!started && n >= 2) {
-      linkCommand('p');
-      started = 1;
-      waited = 0;
-    } else if (started && n > 0) {
-      if (n > SCREEN_PIECE) n = SCREEN_PIECE;
-      if ((unsigned short)n > left) n = left;
-      OSWriteLinkBlock(p, n);
-      p += n;
-      left -= n;
-      waited = 0;
-    } else if (++waited > SCREEN_PATIENCE) {
-      OSLinkOpen();
-      return;
+  lk.rxOpen = 0;
+  while (i < SHOT_PIECES) {
+    while (linkNext()) { }
+    if (!outQueueLen && tl_window_free(&lk)) {
+      piece[0] = i;
+      memcpy(piece + 1, lcd + i * SHOT_PIECE, SHOT_PIECE);
+      tl_send(&lk, TL_SHOT, piece, sizeof(piece));
+      i++;
+      waited = FiftyMsecTick;
+    } else if (FiftyMsecTick - waited > SCREEN_PATIENCE) {
+      break;
     } else {
       idle();
     }
   }
+  lk.rxOpen = wasOpen;
 }
 
 // The screenshot key is dealt with here, so that it works wherever a key is
-// waited for.
+// waited for. The link carries on meanwhile.
 static unsigned short waitKey(void)
 {
   unsigned short key;
   for (;;) {
-    while (OSdequeue(&key, keyQueue)) idle();
+    while (OSdequeue(&key, keyQueue)) {
+      linkWait();
+      idle();
+    }
     if (key != KEY_SCREENSHOT) return key;
     sendScreen();
   }
@@ -741,16 +825,15 @@ static void drawStatus(const char *text, short len)
   for (col = 0; col < COLS; col++) drawCell(col, ROWS - 1, col < len ? text[col] : ' ', 1);
 }
 
-// A session asks the ESP32 whether it is there, with LINK_MARK 'y', every
-// PING_TICKS, also while output is pouring in: the ESP32 counts the calculator
-// as there only while it hears from it. When the link slips out of step after
-// the cable was replugged, the calculator cannot send, so the ESP32 stops and
-// the quiet that follows puts the link back in step. Silence for LOST_TICKS
-// shows the banner over the bottom row, until the next byte arrives. A busy
-// ESP32 can also be silent for a while: an SSH connection to a host that does
-// not answer takes 15 s to fail.
-#define PING_TICKS 40   // 2 s: one lost ping still keeps the ESP32 within its 5 s
-#define LOST_TICKS 240  // 12 s
+// The link layer sends a PING whenever the calculator has sent nothing for
+// KEEPALIVE_MS, and the ESP32 acknowledges it, so each side keeps hearing
+// the other. When the link slips out of step after the cable was replugged,
+// the calculator cannot send, so the ESP32 stops and the quiet that follows
+// puts the link back in step; what it sent meanwhile is sent again. No good
+// frame for LOST_MS shows the banner over the bottom row, until the next one
+// arrives. A busy ESP32 can also be silent for a while: an SSH connection to
+// a host that does not answer takes 15 s to fail.
+#define LOST_MS 12000UL
 
 static const char LOST_BANNER[] = " ESP32: no answer, check the link cable    2nd+ESC: menu";
 static const char RESTARTED[] = "\r\n[ESP32 restarted, session lost: 2nd+ESC for the menu]\r\n";
@@ -776,61 +859,59 @@ static void hideBanner(void)
 // is typed, or each key's code.
 static void session(short mode)
 {
-  char buf[64];
-  char sessionId[sizeof(espId)];
+  char buf[16];
+  unsigned char sessionId[sizeof(espId)];
   unsigned short key;
-  unsigned long heard, asked;
-  short haveId = 0, restartTold = 0;
-  short n;
+  unsigned long started;
+  short haveId, restartTold = 0;
+  short type, got;
 
   online = mode < MODE_LOCAL;
   bannerShown = 0;
-  pingAnswered = 0;
   termPuts("\x1B" "c");
   if (mode == MODE_LOCAL) termPuts("[local echo, 2nd+ESC for the menu]\r\n");
   if (mode == MODE_KEY_CODES) termPuts("[key codes, 2nd+ESC for the menu]\r\n");
 
+  // The ESP32 this session runs on. If the link has not been answered yet,
+  // its first answer tells.
+  haveId = espIdKnown;
+  memcpy(sessionId, espId, sizeof(espId));
   if (online) {
-    OSLinkOpen();  // drops whatever is still queued
-    // The first answer gives the ESP32's id, which later answers must match.
-    linkCommand('y');
     if (mode == MODE_SSH || mode == MODE_SSH_HOST || mode == MODE_SSH_COPY || mode == MODE_WIFI_JOIN) {
-      linkCommand('0' + hostSlot);
+      linkCommand(MODE_LETTERS[mode], hostSlot);
+    } else {
+      linkCommand(MODE_LETTERS[mode], 0);
     }
-    linkCommand(MODE_LETTERS[mode]);
     // Ctrl-L: a shell that is already waiting redraws its prompt.
     if (mode == MODE_SERIAL) hostSend("\x0C", 1);
   }
-  heard = asked = FiftyMsecTick;
+  started = nowMs();
   OSRegisterTimer(USER_TIMER, BLINK_TICKS);
 
   for (;;) {
-    if (online) {
-      unsigned long now = FiftyMsecTick;
-      if (now - asked >= PING_TICKS) {
-        linkCommand('y');
-        asked = now;
-      }
-      if (now - heard >= LOST_TICKS && !bannerShown) showBanner();
-    }
-
-    n = online ? OSReadLinkBlock(buf, sizeof(buf)) : 0;
-    if (n > 0) {
-      heard = FiftyMsecTick;
-      if (bannerShown) hideBanner();
-      termWrite(buf, n);
-      if (pingAnswered) {
-        pingAnswered = 0;
-        if (!haveId) {
-          memcpy(sessionId, espId, sizeof(espId));
-          haveId = 1;
-        } else if (memcmp(sessionId, espId, sizeof(espId)) && !restartTold) {
-          termPuts(RESTARTED);
-          restartTold = 1;
-        }
-      }
+    // One frame a pass, so that the keys are read during a flood too.
+    type = online ? linkNext() : 0;
+    got = type == TL_DATA;
+    if (got) {
+      termWrite((const char *)lk.in.data, lk.in.len);
       toggleCursor();
       OSTimerRestart(USER_TIMER);
+    } else if (type == TL_HELLO_ACK) {
+      if (!haveId) {
+        memcpy(sessionId, espId, sizeof(espId));
+        haveId = 1;
+      } else if (memcmp(sessionId, espId, sizeof(espId)) && !restartTold) {
+        termPuts(RESTARTED);
+        restartTold = 1;
+      }
+    }
+    if (online) {
+      unsigned long now = nowMs();
+      if (tl_heard_within(&lk, now, LOST_MS)) {
+        if (bannerShown) hideBanner();
+      } else if (!bannerShown && now - started >= LOST_MS) {
+        showBanner();
+      }
     }
 
     // Keys are read on every pass, so that the quit key and Ctrl-C get
@@ -848,18 +929,18 @@ static void session(short mode)
       // The banner's row is kept as it was under it: no cursor while it shows.
       if (!cursorShown && !bannerShown) toggleCursor();
       OSTimerRestart(USER_TIMER);
-    } else if (n == 0 && OSTimerExpired(USER_TIMER)) {
+    } else if (!type && OSTimerExpired(USER_TIMER)) {
       if (!bannerShown) toggleCursor();
       OSTimerRestart(USER_TIMER);
-    } else if (n == 0) {
+    } else if (!type) {
       idle();
     }
   }
 
   OSFreeTimer(USER_TIMER);
-  if (online) linkCommand('x');
+  if (online) linkCommand('x', 0);
   online = 0;
-  state = ST_TEXT;  // an answer or a sequence cut short by the quit key
+  state = ST_TEXT;  // a sequence cut short by the quit key
 }
 
 static void testPattern(void)
@@ -948,55 +1029,39 @@ static void shadeKeys(short entries, short mask, short greyed)
 }
 
 // Waits for one of a menu's entries, F1 and on, while the bottom row shows
-// the ESP32's Wi-Fi status. Its answer is LINK_MARK 'w', '+' or '-' for
-// Wi-Fi up or down, the text and a newline. The entries in needEsp cannot be
+// the ESP32's Wi-Fi status. Its answer is a STATUS frame, '+' or '-' for
+// Wi-Fi up or down and the text. The entries in needEsp cannot be
 // chosen until the ESP32 answers, or once it stops answering; those in
 // needWifi, also while Wi-Fi is down. Returns the entry, from 1, or 0 for ESC.
 static short menuChoice(short entries, short needEsp, short needWifi)
 {
   static const char NO_WIFI[] = "Wi-Fi is not connected: the main menu's F3 joins a network";
-  char buf[64];
-  char status[COLS];
   unsigned short key;
   short choice = -1;
-  short step = 0;        // 0 other bytes, 1 after LINK_MARK, 2 the up or down, 3 the text
-  short statusLen = 0;
   short unanswered = 0;
   short answered = 0;    // the ESP32 is answering
-  short wifiUp = 0, lineWifiUp = 0;
-  short n, i, bit;
+  short wifiUp = 0, lineWifiUp;
+  short type, len, bit;
 
   shadeKeys(entries, needEsp | needWifi, 1);
   drawStatus("Wi-Fi: asking the ESP32...", 26);
-  linkCommand('w');
+  linkCommand('w', 0);
   OSRegisterTimer(USER_TIMER, STATUS_TICKS);
 
   while (choice < 0) {
     // Outside a session only the Wi-Fi status is expected; the rest is dropped.
-    n = OSReadLinkBlock(buf, sizeof(buf));
-    for (i = 0; i < n; i++) {
-      char c = buf[i];
-      if (step == 0) {
-        if (c == LINK_MARK) step = 1;
-      } else if (step == 1) {
-        step = (c == 'w') ? 2 : 0;
-        statusLen = 0;
-      } else if (step == 2) {
-        lineWifiUp = (c == '+');
-        step = 3;
-      } else if (c == '\n') {
-        drawStatus(status, statusLen);
-        if (!answered || wifiUp != lineWifiUp) {
-          answered = 1;
-          wifiUp = lineWifiUp;
-          shadeKeys(entries, needEsp, 0);
-          shadeKeys(entries, needWifi, !wifiUp);
-        }
-        unanswered = 0;
-        step = 0;
-      } else if (statusLen < COLS) {
-        status[statusLen++] = c;
+    type = linkNext();
+    if (type == TL_STATUS && lk.in.len >= 1) {
+      lineWifiUp = lk.in.data[0] == '+';
+      len = lk.in.len - 1;
+      drawStatus((const char *)lk.in.data + 1, len < COLS ? len : COLS);
+      if (!answered || wifiUp != lineWifiUp) {
+        answered = 1;
+        wifiUp = lineWifiUp;
+        shadeKeys(entries, needEsp, 0);
+        shadeKeys(entries, needWifi, !wifiUp);
       }
+      unanswered = 0;
     }
 
     if (!OSdequeue(&key, keyQueue)) {
@@ -1018,11 +1083,10 @@ static short menuChoice(short entries, short needEsp, short needWifi)
           shadeKeys(entries, needEsp | needWifi, 1);
         }
         resetLink();
-        step = 0;
       }
-      linkCommand('w');
+      linkCommand('w', 0);
       OSTimerRestart(USER_TIMER);
-    } else if (n == 0) {
+    } else if (!type) {
       idle();
     }
   }
@@ -1043,19 +1107,19 @@ static short submenu(const char *text, short entries, short needEsp, short needW
 #define HOST_COL 9        // where an entry's text starts, counted from 1
 
 // A menu of the ESP32's SSH hosts or Wi-Fi networks, count of them, which it
-// is asked for with LINK_MARK and letter. Its answer is LINK_MARK, the letter
-// and a line for each entry, empty if not set. Returns the entry chosen, from
-// 1, or 0 for ESC. An entry that is not set can be chosen only with emptyToo.
+// is asked for with a CMD frame and letter. Its answer is a LIST frame for
+// each entry: the letter, the entry from 0 and its text, empty if not set.
+// Returns the entry chosen, from 1, or 0 for ESC. An entry that is not set
+// can be chosen only with emptyToo.
 static short listMenu(const char *title, const char *hint, short emptyToo, short count, char letter)
 {
-  char buf[64];
+  char buf[32];
   unsigned short key;
   char isSet[MAX_HOSTS];  // the longest list
-  short step = 0;   // 0 other bytes, 1 after LINK_MARK, 2 in the list
-  short line = 0;   // of the list, count once it is complete
-  short col = 0;
+  short arrived = 0;      // a bit for each entry that has come
+  short complete = 0;
   short unanswered = 0;
-  short n, i;
+  short type, line, len, i;
 
   termPuts("\x1B" "c");
   termPuts(title);
@@ -1068,57 +1132,42 @@ static short listMenu(const char *title, const char *hint, short emptyToo, short
   shadeKeys(count, (1 << count) - 1, 1);  // until the list arrives
 
   drawStatus("Asking the ESP32...", 19);
-  linkCommand(letter);
+  linkCommand(letter, 0);
   OSRegisterTimer(USER_TIMER, STATUS_TICKS);
 
   for (;;) {
-    n = OSReadLinkBlock(buf, sizeof(buf));
-    for (i = 0; i < n; i++) {
-      char c = buf[i];
-      if (step == 0) {
-        if (c == LINK_MARK) step = 1;
-      } else if (step == 1) {
-        step = (c == letter) ? 2 : 0;
-        line = col = 0;
-      } else {
-        if (col == 0) {
-          char seq[16];
-          sprintf(seq, "\x1B[%d;%dH\x1B[K", HOST_FIRST_ROW + 2 * line, HOST_COL);
-          termPuts(seq);
-        }
-        if (c != '\n') {
-          if (col < COLS - HOST_COL) termWrite(&c, 1);
-          col++;
-        } else {
-          if (col == 0) termPuts("-");
-          isSet[line] = col > 0;
-          col = 0;
-          if (++line == count) {
-            drawStatus(hint, strlen(hint));
-            shadeKeys(count, (1 << count) - 1, 0);
-            step = 0;
-          }
-        }
+    type = linkNext();
+    if (type == TL_LIST && lk.in.len >= 2 && lk.in.data[0] == letter && lk.in.data[1] < count) {
+      line = lk.in.data[1];
+      sprintf(buf, "\x1B[%d;%dH\x1B[K", HOST_FIRST_ROW + 2 * line, HOST_COL);
+      termPuts(buf);
+      len = lk.in.len - 2;
+      if (len > COLS - HOST_COL) len = COLS - HOST_COL;
+      if (len) termWrite((const char *)lk.in.data + 2, len);
+      else termPuts("-");
+      isSet[line] = len > 0;
+      arrived |= 1 << line;
+      if (!complete && arrived == (1 << count) - 1) {
+        complete = 1;
+        drawStatus(hint, strlen(hint));
+        shadeKeys(count, (1 << count) - 1, 0);
       }
     }
 
     if (!OSdequeue(&key, keyQueue)) {
       if (key == KEY_SCREENSHOT) sendScreen();
       if (key == KEY_ESC || isQuitKey(key)) { key = 0; break; }
-      if (line == count && key >= KEY_F1 && key < (unsigned short)(KEY_F1 + count) &&
+      if (complete && key >= KEY_F1 && key < (unsigned short)(KEY_F1 + count) &&
           (emptyToo || isSet[key - KEY_F1])) {
         key = key - KEY_F1 + 1;
         break;
       }
-    } else if (line < count && OSTimerExpired(USER_TIMER)) {
+    } else if (!complete && OSTimerExpired(USER_TIMER)) {
       drawStatus("ESP32: no answer", 16);
-      if (++unanswered > 2) {
-        resetLink();
-        step = 0;
-      }
-      linkCommand(letter);
+      if (++unanswered > 2) resetLink();
+      linkCommand(letter, 0);
       OSTimerRestart(USER_TIMER);
-    } else if (n == 0) {
+    } else if (!type) {
       idle();
     }
   }
@@ -1218,6 +1267,13 @@ void _main(void)
 
   OSLinkReset();
   OSLinkOpen();
+  // Set here, not where they are declared: a program's variables can keep
+  // their values from the run before.
+  rxLen = rxPos = 0;
+  espIdKnown = 0;
+  clearQueue();
+  tl_init(&lk, TL_INITIATOR, RTO_MS, KEEPALIVE_MS);
+  tl_hello(&lk);
   OSFreeTimer(USER_TIMER);
 
   while (menu()) { }
