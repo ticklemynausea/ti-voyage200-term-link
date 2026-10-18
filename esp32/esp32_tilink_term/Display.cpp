@@ -47,8 +47,18 @@ int logCount;
 M5Canvas canvas(&M5Cardputer.Display);
 int page;
 bool forced = true;
-uint32_t lastDraw, lastKeys, lastRate, lastBattery, lastByteAt;
-uint32_t ratedTo, ratedFrom, toPerSecond, fromPerSecond, seenBytes;
+uint32_t lastDraw, lastKeys, lastRate, lastBattery, lastByteAt, seenBytes;
+
+// Bytes and frames a second, for the counts that have a rate.
+struct Rate {
+  Status::Count last, perSecond;
+  void take(const Status::Count &now, uint32_t ms) {
+    perSecond.bytes = (uint32_t)((uint64_t)(now.bytes - last.bytes) * 1000 / ms);
+    perSecond.frames = (uint32_t)((uint64_t)(now.frames - last.frames) * 1000 / ms);
+    last = now;
+  }
+};
+Rate toRate, fromRate, outRate, inRate;
 int battery = -1;
 
 // The G0 button steps the backlight through these, then back to off.
@@ -73,9 +83,30 @@ void clock(char *out, size_t size, uint32_t seconds) {
            (unsigned long)(seconds / 60 % 60), (unsigned long)(seconds % 60));
 }
 
+// A count in at most 7 characters: as it is up to a million, then in M and G.
+void amount(char *out, size_t size, uint32_t n) {
+  if (n < 1000000) snprintf(out, size, "%lu", (unsigned long)n);
+  else if (n < 1000000000) snprintf(out, size, "%lu.%luM", (unsigned long)(n / 1000000), (unsigned long)(n % 1000000 / 100000));
+  else snprintf(out, size, "%lu.%luG", (unsigned long)(n / 1000000000), (unsigned long)(n % 1000000000 / 100000000));
+}
+
+// A rate in at most 5 characters: as it is up to 999, then in k.
 void rate(char *out, size_t size, uint32_t perSecond) {
-  if (perSecond < 1000) snprintf(out, size, "%lu/s", (unsigned long)perSecond);
-  else snprintf(out, size, "%lu.%luk/s", (unsigned long)(perSecond / 1000), (unsigned long)(perSecond % 1000 / 100));
+  if (perSecond < 1000) snprintf(out, size, "%lu", (unsigned long)perSecond);
+  else snprintf(out, size, "%lu.%luk", (unsigned long)(perSecond / 1000), (unsigned long)(perSecond % 1000 / 100));
+}
+
+// A row of the link page's table: a label, the bytes and frames, and with
+// a rate, those a second.
+void countRow(uint16_t colour, const char *label, const Status::Count &c, const Rate *r) {
+  char bytes[12], frames[12], bytesPs[8] = "", framesPs[8] = "";
+  amount(bytes, sizeof(bytes), c.bytes);
+  amount(frames, sizeof(frames), c.frames);
+  if (r) {
+    rate(bytesPs, sizeof(bytesPs), r->perSecond.bytes);
+    rate(framesPs, sizeof(framesPs), r->perSecond.frames);
+  }
+  add(1, colour, "%-10s%8s%7s%6s%5s", label, bytes, frames, bytesPs, framesPs);
 }
 
 void statusPage(const Status &s) {
@@ -99,32 +130,37 @@ void statusPage(const Status &s) {
   }
   add(1, TFT_BLACK, "");
 
-  char to[12], from[12];
-  rate(to, sizeof(to), toPerSecond);
-  rate(from, sizeof(from), fromPerSecond);
+  char to[8], from[8];
+  rate(to, sizeof(to), toRate.perSecond.bytes);
+  rate(from, sizeof(from), fromRate.perSecond.bytes);
   if (!s.calcPresent) add(1, TFT_RED, "calculator: off or unplugged");
   else if (!s.calcHeard) add(1, TFT_ORANGE, "calculator: waiting");
   else add(1, TFT_WHITE, "calculator: connected");
-  add(1, TFT_LIGHTGREY, "to calc %s   from calc %s", to, from);
+  add(1, TFT_LIGHTGREY, "to calc %s B/s   from calc %s B/s", to, from);
 }
 
+// The frames' contents to and from the calculator, everything on the line
+// (acknowledgements and framing too), and what went wrong. Bytes on the
+// line and in bad frames are as they went over the wire. The handshake row
+// counts single bytes whose bit handshake failed: the link layer sends their
+// frames again, so they cost time, not data.
 void linkPage(const Status &s) {
-  char to[12], from[12], up[16];
-  rate(to, sizeof(to), toPerSecond);
-  rate(from, sizeof(from), fromPerSecond);
+  char up[16], errors[12];
   clock(up, sizeof(up), millis() / 1000);
 
   if (!s.calcPresent) add(1, TFT_RED, "calculator   off or unplugged");
   else if (!s.calcHeard) add(1, TFT_ORANGE, "calculator   waiting, lines %s", s.linesIdle ? "idle" : "busy");
   else add(1, TFT_WHITE, "calculator   connected, lines %s", s.linesIdle ? "idle" : "busy");
-  add(1, TFT_BLACK, "");
-  add(1, TFT_WHITE, "to calc      %10lu  %s", (unsigned long)s.toCalc, to);
-  add(1, TFT_WHITE, "from calc    %10lu  %s", (unsigned long)s.fromCalc, from);
-  add(1, TFT_BLACK, "");
-  add(1, s.dropped ? TFT_ORANGE : TFT_LIGHTGREY, "dropped      %10lu", (unsigned long)s.dropped);
-  add(1, TFT_LIGHTGREY, "resends      %10lu", (unsigned long)s.resends);
-  add(1, s.errors ? TFT_ORANGE : TFT_LIGHTGREY, "link errors  %10lu", (unsigned long)s.errors);
-  add(1, TFT_BLACK, "");
+  add(1, TFT_LIGHTGREY, "%-10s%8s%7s%6s%5s", "", "bytes", "frames", "B/s", "fr/s");
+  countRow(TFT_WHITE, "to calc", s.toCalc, &toRate);
+  countRow(TFT_WHITE, "from calc", s.fromCalc, &fromRate);
+  countRow(TFT_LIGHTGREY, "line out", s.lineOut, &outRate);
+  countRow(TFT_LIGHTGREY, "line in", s.lineIn, &inRate);
+  countRow(s.resent.frames ? TFT_ORANGE : TFT_LIGHTGREY, "sent again", s.resent, nullptr);
+  countRow(s.bad.frames ? TFT_ORANGE : TFT_LIGHTGREY, "bad", s.bad, nullptr);
+  countRow(s.dropped.frames ? TFT_ORANGE : TFT_LIGHTGREY, "dropped", s.dropped, nullptr);
+  amount(errors, sizeof(errors), s.handshakeErrors);
+  add(1, s.handshakeErrors ? TFT_ORANGE : TFT_LIGHTGREY, "%-10s%8s%7s", "handshake", errors, "-");
   if (seenBytes) add(1, TFT_LIGHTGREY, "last byte    %lu s ago", (unsigned long)((millis() - lastByteAt) / 1000));
   else add(1, TFT_LIGHTGREY, "last byte    none yet");
   add(1, TFT_LIGHTGREY, "uptime       %s", up);
@@ -215,15 +251,15 @@ void update(const Status &s) {
   uint32_t now = millis();
   lastDraw = now;
 
-  if (s.toCalc + s.fromCalc != seenBytes) {
-    seenBytes = s.toCalc + s.fromCalc;
+  if (s.lineOut.bytes + s.lineIn.bytes != seenBytes) {
+    seenBytes = s.lineOut.bytes + s.lineIn.bytes;
     lastByteAt = now;
   }
   if (now - lastRate >= RATE_MS) {
-    toPerSecond = (uint32_t)((uint64_t)(s.toCalc - ratedTo) * 1000 / (now - lastRate));
-    fromPerSecond = (uint32_t)((uint64_t)(s.fromCalc - ratedFrom) * 1000 / (now - lastRate));
-    ratedTo = s.toCalc;
-    ratedFrom = s.fromCalc;
+    toRate.take(s.toCalc, now - lastRate);
+    fromRate.take(s.fromCalc, now - lastRate);
+    outRate.take(s.lineOut, now - lastRate);
+    inRate.take(s.lineIn, now - lastRate);
     lastRate = now;
   }
   if (battery < 0 || now - lastBattery >= BATTERY_MS) {

@@ -60,7 +60,7 @@ and then `seq 1 30`, so the prompt sits on the last row.
 | L23 | pass | Pull the cable for 5 s only during a quiet session, then plug it back. | No banner at all. The session carries on. |
 | L24 |  | SSH: `while true; do date; sleep 1; done`. Pull the cable for 30 s, then plug it back. | Banner after about 12 s. After plugging back, within a few seconds, the banner goes and the dates from the gap arrive in a burst, **none missing**, clean and not garbled: the ESP32 sent nothing while the cable was out and left the SSH output unread. Then one a second again. 2nd+ESC afterwards reaches a working menu. |
 | L29 |  | L24 five times in a row, plugging the cable back at a different moment each time. | Each time as in L24. If the menu is ever left at "ESP32: no answer", go on with L38. |
-| L24b |  | SSH: `while true; do date; sleep 1; done`. Unplug the cable and plug it back **at once**, five times, a while apart. | Nothing is garbled at any point. After a replug the dates may pause for a few seconds and then catch up, none missing; keys typed meanwhile arrive late. No banner, no restart of `term()`, no reset of the ESP32. Note how many seconds each pause took; expect about 5 s plus a few. The Cardputer's link page may count link errors and resends: that is the link layer at work. |
+| L24b |  | SSH: `while true; do date; sleep 1; done`. Unplug the cable and plug it back **at once**, five times, a while apart. | Nothing is garbled at any point. After a replug the dates may pause for a few seconds and then catch up, none missing; keys typed meanwhile arrive late. No banner, no restart of `term()`, no reset of the ESP32. Note how many seconds each pause took; expect about 5 s plus a few. The Cardputer's link page may count bad frames and frames sent again: that is the link layer at work. |
 | L25 |  | Serial session with `make shell`: L20 and L21 again. | Same as SSH. |
 | L26 | pass | Settings → SSH hosts → a host → at a question, pull the cable for 20 s, then plug it back. | Banner while it is out. After plugging back the banner goes, the question is still there and can be answered. |
 | L27 | pass | Pull the cable during a quiet SSH session, wait for the banner, press 2nd+ESC. Then plug the cable back. | The menu comes back at once, with "ESP32: no answer" and its entries greyed. After plugging back the menu's status returns within a few seconds and the entries can be chosen. A new SSH session works. |
@@ -96,7 +96,7 @@ and again in a Serial session with `make shell`.
 | L52 |  | `printf '\e[10;20HX\x1e\e[12;20HY\n'` | `X` at row 10, `Y` at row 12, both in column 20: a `1E` between two sequences leaves both alone. |
 | L53 |  | `head -c 20000 /dev/urandom` (in Serial: a few times), then `reset`. | Garbage on the screen, then a clean terminal after `reset`. The session goes on working: `echo ok`. In Serial, the ESP32 stays in raw mode (no monitor text appears) and output keeps flowing afterwards, which shows that runs of `1E` in the output neither start control lines nor upset the acknowledgements. The random bytes contain `C0` and `C1` too: the link carries them like any other. |
 | L54 |  | Serial only: `printf '\x1e\x1e\x1emonitor\n'; echo still-raw` | Three `1E` draw nothing, then `monitor` and `still-raw` are shown. The ESP32 stays in raw mode. |
-| L55 |  | `printf 'a\xc0\xc1\xc0b\n'; printf '\xc1\xc1\xc1\xc1\xc1\xc1c\n'` | Two lines, ending in `b` and `c`, with a few blocks or nothing where the stray bytes were. The session carries on: `echo ok`. The Cardputer's link errors do not go up. |
+| L55 |  | `printf 'a\xc0\xc1\xc0b\n'; printf '\xc1\xc1\xc1\xc1\xc1\xc1c\n'` | Two lines, ending in `b` and `c`, with a few blocks or nothing where the stray bytes were. The session carries on: `echo ok`. The Cardputer's "bad" row does not go up. |
 
 ## Serial sessions with make shell
 
@@ -160,8 +160,8 @@ otherwise, these must hold throughout:
   press: a key that collides with the ESP32's bytes is sent again
 - afterwards, `echo ok` works and the prompt is where it should be (run
   `reset` first after binary output)
-- the link page's "dropped" count does not go up. Its "link errors" and
-  "resends" may: they count the frames the link layer had to send again
+- the link page's "dropped" row stays at 0. Its "sent again", "bad" and
+  "handshake" rows may go up: they count what the link layer put right
 
 | ID | Result | Steps | Expected |
 |---|---|---|---|

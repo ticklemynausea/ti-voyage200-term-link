@@ -23,7 +23,16 @@ struct Status {
   bool calcPresent;       // the lines are not both held low
   bool calcHeard;         // its program said something lately
   bool linesIdle;
-  uint32_t toCalc, fromCalc, dropped, resends, errors;
+  // What crossed the link, each in bytes and frames. The bytes are the
+  // frames' contents, except on the line and in bad frames, which count
+  // every byte as it went over the wire.
+  struct Count { uint32_t bytes, frames; };
+  Count toCalc, fromCalc;  // the frames' contents, each frame once
+  Count lineOut, lineIn;   // everything, acknowledgements and framing too
+  Count resent;            // frames sent again
+  Count bad;               // frames from the calculator that failed their check
+  Count dropped;           // output given up on, never sent
+  uint32_t handshakeErrors;  // bytes whose bit handshake failed
   String sshTarget;       // user@host, empty when not set up
   String wifiName;        // empty when not set up
   bool wifiUp;

@@ -129,7 +129,8 @@ uint8_t outLen = 0;
 // menu) waits for room in the link's window: long enough for a slipped link
 // to recover.
 const uint32_t OUT_WAIT_MS = 10000;
-uint32_t toCalc = 0, fromCalc = 0, dropped = 0, retries = 0;
+// The link layer counts what crosses the link; these are the sketch's own.
+uint32_t droppedBytes = 0, droppedFrames = 0, retries = 0;
 String line;
 
 // Control lines from the host: CONTROL_MARK three times, a word, a newline.
@@ -213,11 +214,14 @@ void showStatus() {
   s.calcPresent = !linkDown;
   s.calcHeard = calcHeard();
   s.linesIdle = ti.lineIdle();
-  s.toCalc = toCalc;
-  s.fromCalc = fromCalc;
-  s.dropped = dropped;
-  s.resends = lk.framesResent;
-  s.errors = ti.errors + lk.framesBad;
+  s.toCalc = {lk.bytesSent, lk.framesSent};
+  s.fromCalc = {lk.bytesRecv, lk.framesRecv};
+  s.lineOut = {lk.lineBytesOut, lk.lineFramesOut};
+  s.lineIn = {lk.lineBytesIn, lk.lineFramesIn};
+  s.resent = {lk.bytesResent, lk.framesResent};
+  s.bad = {lk.bytesBad, lk.framesBad};
+  s.dropped = {droppedBytes, droppedFrames};
+  s.handshakeErrors = ti.errors;
   uint8_t hostsSet = 0;
   for (const Host &h : hosts) hostsSet += h.isSet();
   if (backend == BACKEND_SSH) s.sshTarget = hostLabel(slot);
@@ -232,7 +236,6 @@ void showStatus() {
 // ---------- calculator -> backend ----------
 
 void forwardFromCalc(uint8_t b) {
-  fromCalc++;
   if (asking) {
     if (typedCount < sizeof(typed)) typed[typedCount++] = b;
   } else if (backend == BACKEND_SSH) {
@@ -273,7 +276,6 @@ void takeShotPiece(const tl_frame &f) {
   if (!shotLeft || at != SHOT_BYTES - shotLeft) return;  // the rest of one given up on
   size_t n = min((size_t)(f.len - 1), shotLeft);
   memcpy(shot + at, f.data + 1, n);
-  fromCalc += n;
   shotLeft -= n;
   shotLastMs = millis();
   if (!shotLeft) finishShot();
@@ -339,10 +341,7 @@ void pumpFromCalc() {
 bool sendWire(uint8_t b) {
   uint32_t t0 = millis();
   for (;;) {
-    if (ti.sendByte(b)) {
-      toCalc++;
-      return true;
-    }
+    if (ti.sendByte(b)) return true;
     bool nothingSent = ti.lastErrBit == 0 && ti.lastErrStage != 7;
     if (!nothingSent || millis() - t0 > SEND_PATIENCE_MS) break;
     retries++;
@@ -397,7 +396,8 @@ bool flushOut(bool wait) {
   if (!outLen) return true;
   if (!tl_window_free(&lk) && (!wait || !waitWindow())) {
     if (wait) {
-      dropped += outLen;
+      droppedBytes += outLen;
+      droppedFrames++;
       outLen = 0;
     }
     return false;
@@ -984,19 +984,29 @@ void pumpSsh() {
 // ---------- commands (monitor mode) ----------
 
 void printStats() {
-  Serial.printf("to calc %lu, from calc %lu, dropped %lu, retries %lu, link errors %lu, line idle: %s\n",
-                (unsigned long)toCalc, (unsigned long)fromCalc, (unsigned long)dropped,
-                (unsigned long)retries, (unsigned long)ti.errors, ti.lineIdle() ? "yes" : "NO");
-  Serial.printf("frames sent %lu, sent again %lu, bad frames from calc %lu, link %s\n",
-                (unsigned long)lk.framesSent, (unsigned long)lk.framesResent,
-                (unsigned long)lk.framesBad, lk.started ? "started" : "not started (no HELLO yet)");
+  // Bytes are the frames' contents, except on the line and in bad frames,
+  // which count every byte as it went over the wire.
+  const struct { const char *name; unsigned long bytes, frames; } rows[] = {
+    {"to calc", lk.bytesSent, lk.framesSent},
+    {"from calc", lk.bytesRecv, lk.framesRecv},
+    {"line out", lk.lineBytesOut, lk.lineFramesOut},
+    {"line in", lk.lineBytesIn, lk.lineFramesIn},
+    {"sent again", lk.bytesResent, lk.framesResent},
+    {"bad frames", lk.bytesBad, lk.framesBad},
+    {"dropped", droppedBytes, droppedFrames},
+  };
+  Serial.printf("%-12s %10s %8s\n", "", "bytes", "frames");
+  for (const auto &r : rows) Serial.printf("%-12s %10lu %8lu\n", r.name, r.bytes, r.frames);
+  Serial.printf("handshake errors %lu bytes (%lu tried again), line idle: %s, link %s\n",
+                (unsigned long)ti.errors, (unsigned long)retries, ti.lineIdle() ? "yes" : "NO",
+                lk.started ? "started" : "not started (no HELLO yet)");
 }
 
 // Sends numbered 60-character lines, so a lost or repeated byte shows on the
 // calculator's screen, and reports the speed.
 void burst(uint32_t bytes) {
   static const char FILL[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ012";
-  uint32_t dropped0 = dropped, fromCalc0 = fromCalc, sent = 0, n = 0;
+  uint32_t dropped0 = droppedBytes, fromCalc0 = lk.bytesRecv, sent = 0, n = 0;
   uint32_t t0 = millis();
 
   while (sent < bytes) {
@@ -1014,7 +1024,7 @@ void burst(uint32_t bytes) {
   Serial.printf("\nburst: %lu bytes in %lu ms = %lu bytes/s, %lu dropped, %lu received meanwhile\n",
                 (unsigned long)sent, (unsigned long)ms,
                 (unsigned long)(ms ? sent * 1000UL / ms : 0),
-                (unsigned long)(dropped - dropped0), (unsigned long)(fromCalc - fromCalc0));
+                (unsigned long)(droppedBytes - dropped0), (unsigned long)(lk.bytesRecv - fromCalc0));
 }
 
 void handleLine(const String &text) {

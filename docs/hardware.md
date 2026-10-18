@@ -87,7 +87,7 @@ next press; it starts at 25% at power-up.
 | Page | Shows |
 |---|---|
 | Status | the mode (menu, Serial or SSH), the SSH target or whether the computer is attached, the Wi-Fi network with signal and address, the calculator's presence, bytes per second each way |
-| Link | byte counts and rates each way, dropped bytes, resends, link errors, time since the last byte, uptime |
+| Link | a table of bytes and frames: to and from the calculator and everything on the line (acknowledgements and framing too), each with its rate; frames sent again, bad frames, dropped output; bytes whose handshake failed; time since the last byte, uptime |
 | Log | the last events with the time since power-up: mode changes, Wi-Fi and SSH messages, the calculator or computer coming and going |
 | Build | when the sketch was built and from which commit, with a `+` if there were changes not yet committed |
 
