@@ -3,13 +3,9 @@
 #include "Display.h"
 #include <M5Cardputer.h>
 
-// The Makefile writes it in the build folder; a build from elsewhere has none.
-#if __has_include("version.h")
-#include "version.h"
-#else
-#define VERSION "unknown"
-#define BUILT __DATE__ " " __TIME__
-#endif
+// In Version.cpp.
+extern const char BUILD_VERSION[];
+extern const char BUILD_TIME[];
 
 namespace Display {
 
@@ -234,10 +230,10 @@ void logPage() {
 
 void buildPage() {
   add(1, TFT_LIGHTGREY, "built");
-  add(2, TFT_WHITE, "%s", BUILT);
+  add(2, TFT_WHITE, "%s", BUILD_TIME);
   add(1, TFT_BLACK, "");
   add(1, TFT_LIGHTGREY, "commit (+: with changes not committed)");
-  add(2, TFT_WHITE, "%s", VERSION);
+  add(2, TFT_WHITE, "%s", BUILD_VERSION);
 }
 
 void draw() {

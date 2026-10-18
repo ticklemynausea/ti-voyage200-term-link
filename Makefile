@@ -23,7 +23,9 @@
 #   make esp32_cardputer:linetest:build
 #   make esp32_cardputer:linetest:flash
 #
-# build compiles into build/<board>-<sketch>/ and flashes nothing. On the
+# build compiles into build/<board>-<sketch>/ and flashes nothing; the
+# object files stay in its cache/ folder, one per board, so a second build
+# only compiles what changed (rm -rf build for a clean one). On the
 # Cardputer the .bin file there can go on the SD card for M5 Launcher to
 # install. flash compiles and uploads over USB, which on the Cardputer
 # replaces M5 Launcher.
@@ -53,7 +55,8 @@ version_h = @mkdir -p build/$(1)-term && \
 
 # $(call compile,fqbn,board,sketch) and the same with an upload. link/ is the
 # link layer the terminal sketch shares with the calculator's program.
-compile = arduino-cli compile --fqbn $(1) --output-dir build/$(2)-$(3) --library $(CURDIR)/link \
+compile = arduino-cli compile --fqbn $(1) --output-dir build/$(2)-$(3) \
+	--build-path $(CURDIR)/build/$(2)-$(3)/cache --library $(CURDIR)/link \
 	--build-property compiler.cpp.extra_flags=-I$(CURDIR)/build/$(2)-$(3) esp32/esp32_tilink_$(3)
 upload = $(call compile,$(1),$(2),$(3)) --upload -p $(PORT)
 need_port = @test -n "$(PORT)" || { echo "No ESP32 found on /dev/cu.usbmodem*. Plug it in or pass PORT=..."; exit 1; }
