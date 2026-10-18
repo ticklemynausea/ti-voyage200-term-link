@@ -1,9 +1,9 @@
 # The calculator as a terminal
 
 The calculator is a dumb terminal: it draws characters, reads keys and moves
-raw bytes over the link port. TI's packet protocol is not involved. The ESP32
-carries the bytes to a shell, either on the computer it is plugged into or on
-any host it can reach by SSH over Wi-Fi.
+bytes over the link port, in checked frames of its own. TI's packet protocol
+is not involved. The ESP32 carries the bytes to a shell, either on the
+computer it is plugged into or on any host it can reach by SSH over Wi-Fi.
 
 ![The Voyage 200 runs calc/term and connects over its link port to an ESP32 running esp32_tilink_term, which reaches a shell on the computer over USB serial and shell/shell.py, or a shell on another host over Wi-Fi and SSH](pics/diagram.svg)
 
@@ -21,6 +21,10 @@ any host it can reach by SSH over Wi-Fi.
   `/burst`, `/stats` and `/raw` test the link.
 - **`shell/shell.py`** runs a command on the computer in a 60x21 `vt220`
   pseudo-terminal joined to the ESP32's port, for the menu's Serial entry.
+- **`link/`** is the link layer between the calculator and the ESP32, in
+  plain C that both build: frames, their checks, acknowledgements and
+  resends. `make link:test` runs it on the computer, over a simulated line
+  that garbles, drops, unplugs and slips.
 
 ## Running it
 
@@ -97,9 +101,10 @@ entry that cannot be used has a checkered key and does not open:
 Debug and Help always open. When it powers up, the ESP32 joins the network
 it used last.
 
-**A lost link in a session.** A session asks the ESP32 whether it is still
-there every 2 s, also while output is arriving. After 12 s with nothing
-from the ESP32, the bottom row says `ESP32: no answer, check the link cable`
+**A lost link in a session.** The calculator sends a short question
+whenever it has sent nothing for 2 s, also while output is arriving, and
+the ESP32 answers it, so each side keeps hearing the other. After 12 s with
+nothing from the ESP32, the bottom row says `ESP32: no answer, check the link cable`
 over whatever was there. When the ESP32 next sends something, the row goes
 back to what it was and the session carries on. If the ESP32 has restarted
 meanwhile, its session is gone, and the calculator says so:
@@ -110,20 +115,22 @@ Whether the SSH host is still there is a different question, which this
 does not answer.
 
 The ESP32 counts the calculator as there only while it hears the
-calculator's own bytes: a question every 3 s in a menu, every 2 s in a
-session. The bytes the calculator takes do not count. After 5 s without
-hearing it, the ESP32 sends it nothing, and the next byte waits until the
+calculator's own frames: its acknowledgements, its keys and its questions.
+After 5 s without hearing it, the ESP32 sends it nothing until the
 calculator speaks again. The session's output waits meanwhile, SSH's as
 well as Serial's: unread, it holds the host back, so nothing is lost when
 the cable is pulled, or while the symbol strip is open.
 
+Nothing that crosses the link is lost or garbled: each frame is checked,
+acknowledged, and sent again if it did not arrive, keys as well as output.
 A byte under way when the cable comes out or goes back in can slip by a
-bit, and then everything after it reads wrong. While slipped, the
-calculator's side of the link still takes bytes but cannot send, so its
-questions stop, and within 5 s the ESP32 stops too. Once the line has been
-still for a few seconds, the calculator's link hardware drops the half byte,
-its next question gets through and the output carries on, clean. What was
-garbled meanwhile stays on the screen; Ctrl-L redraws it.
+bit, and then everything after it reads wrong; those frames fail their
+check and are dropped. While slipped, the calculator's side of the link
+cannot send, so its acknowledgements stop, and the ESP32 stops too. Once
+the line has been still for a few seconds, the calculator's link hardware
+drops the half byte, its next question gets through, and the ESP32 sends
+again what was dropped. The output pauses for a few seconds and carries on
+where it stopped.
 
 If a menu still gets no answer, after three unanswered questions it resets
 the calculator's side of the link, every 3 s until it has an answer, which
@@ -209,46 +216,59 @@ too.
 
 ## How the pieces talk
 
-Everything on the link is raw bytes. Three small conventions sit on top, all
-built on the byte `0x1E`, which neither a keyboard nor a shell normally
-produces.
+Everything between the calculator and the ESP32 goes in frames, made by the
+link layer in `link/` (`tlink.h`), which both programs build. Between the
+ESP32 and the computer the bytes are raw, with a few conventions built on
+the byte `0x1E`, which neither a keyboard nor a shell normally produces.
 
-**Calculator to ESP32.** `0x1E` and a letter is a command; a real `0x1E` is
-sent twice.
+**Frames.** `C0 | ctl | type | length | data | CRC | C0`, with the data at
+most 64 bytes and the CRC (CRC-16/CCITT) two bytes, low byte first. `C0`
+and `C1` never appear in UTF-8; when one of them is in a frame it goes as
+`C1` and the byte xor `0x20`, so text hardly ever needs it. A frame that is
+cut short, fails its CRC or has the wrong length is dropped, and the next
+`C0` starts afresh, so garbage on the line never reaches the screen or the
+shell.
 
-| Bytes | Meaning |
+`ctl` holds a sequence number, the acknowledgement (the number expected
+next from the other side) and whether the frame is numbered. Numbered
+frames arrive once each, in order: up to four can be on their way, and
+when one does not arrive it is sent again, with the ones after it. The
+sender does that at once if the other side has spoken since; if not, it
+waits for it to speak, which gives a slipped link the quiet it needs.
+
+| Type | Numbered | From | Data |
+|---|---|---|---|
+| ACK | no | both | none: only the acknowledgement |
+| HELLO | no | calculator | none. Starts the link afresh, sent when `term()` starts and when a menu resets the link |
+| HELLO_ACK | no | ESP32 | its two letters, picked at power-up. Different letters mean the ESP32 has restarted |
+| WHO | no | ESP32 | none. The answer to anything before a HELLO, which makes the calculator say HELLO again |
+| PING | no | calculator | none. Sent after 2 s without sending; the ESP32 answers with ACK |
+| DATA | yes | both | the session's bytes, as they are: keys, or the output |
+| CMD | yes | calculator | a command letter, below, and for some a slot |
+| STATUS | yes | ESP32 | the answer to `w`: `+` if Wi-Fi is connected or `-` if not, and a line of text |
+| LIST | yes | ESP32 | one entry of the answer to `l` or `m`: the letter, the entry from 0, its text (empty if not set) |
+| SHOT | yes | calculator | a screenshot, in 64 pieces: the piece number and 60 bytes of the screen |
+
+The commands:
+
+| Letter | Meaning |
 |---|---|
-| `1E 's'` | a Serial session starts |
-| `1E '1'` to `1E '8'` | selects one of the SSH hosts for the `h`, `k` or `i` that follows, or one of the Wi-Fi networks for `j` |
-| `1E 'h'` | an SSH session with the selected host starts |
-| `1E 'n'` | the Wi-Fi settings dialog starts |
-| `1E 'k'` | the dialog for the selected host and its user starts |
-| `1E 'g'` | the SSH key dialog starts |
-| `1E 'i'` | the dialog that copies the key to the selected host starts |
-| `1E 'x'` | the session is over |
-| `1E 'w'` | what is the Wi-Fi status? |
-| `1E 'y'` | are you there? Asked at the start of a session and every 2 s during it |
-| `1E 'l'` | which are the SSH hosts? |
-| `1E 'm'` | which are the Wi-Fi networks? |
-| `1E 'j'` | the selected Wi-Fi network is joined and used from now on |
-| `1E 'p'` | a screenshot: the 3840 bytes of the screen follow, as they are |
+| `s` | a Serial session starts |
+| `h` | an SSH session with the host in the slot starts |
+| `n` | the Wi-Fi settings dialog starts |
+| `k` | the dialog for the host in the slot and its user starts |
+| `g` | the SSH key dialog starts |
+| `i` | the dialog that copies the key to the host in the slot starts |
+| `j` | the Wi-Fi network in the slot is joined and used from now on |
+| `x` | the session is over |
+| `w` | what is the Wi-Fi status? |
+| `l` | which are the SSH hosts? Answered with eight LIST entries, `user@host` (with `:port` if it is not 22) |
+| `m` | which are the Wi-Fi networks? Answered with four, each a network's name, with a note if it is joined or was used last |
 
-**ESP32 to calculator.** Plain terminal output, except four answers. To the
-status question: `1E 'w'`, `+` if Wi-Fi is connected or `-` if not, a line
-of text, a newline. To the hosts
-question: `1E 'l'`, then eight lines, each `user@host` (with `:port` if it
-is not 22) or empty, each ended by a newline. To the networks question:
-`1E 'm'`, then four lines in the same way, each a network's name, with a
-note if it is joined or was used last. To are you there: `1E 'y'`, two
-letters the ESP32 picks at power-up, a newline. That answer is not queued
-behind the other commands, so it comes during the settings dialogs too, and
-it can fall anywhere in the output, even inside an escape sequence; the
-calculator takes it out and the sequence carries on. Different letters
-mean the ESP32 has restarted. A real `0x1E` in the session's output, from
-SSH or the serial port, is sent twice, so a program on the host cannot pass
-for the ESP32; the calculator draws nothing for it. An ESP32 with an older
-sketch takes the `'y'` for an unknown command and ends the session, so the
-calculator, the ESP32 and `shell.py` have to be updated together.
+The slot is the host's or network's number, from 1. The output's bytes,
+`0x1E`, `C0` and `C1` included, are drawn as they are: nothing in them is
+taken for the ESP32. The calculator, the ESP32 and `link/` have to be
+updated together.
 
 **Computer to ESP32** (`shell/shell.py`). Three `0x1E` bytes, a word and a
 newline switch the sketch's serial mode: `raw` or `monitor`. That works in
@@ -257,10 +277,10 @@ in. In raw mode entered that way the script keeps at most 128 bytes
 outstanding, and the sketch answers `1E 'a'` for every 32 bytes it has
 passed on. A real `0x1E` in the command's output is sent as `1E 'e'`, so
 three in a row can only be a control line. It is not sent twice as in the
-other directions because `1E 1E 1E` has to stay free for the control lines.
+other direction because `1E 1E 1E` has to stay free for the control lines.
 `1E 'k'` answers the sketch's question below.
 
-**ESP32 to computer.** In that paced raw mode a real `0x1E` from the
+**ESP32 to computer.** In that paced raw mode a real `0x1E` typed on the
 calculator is sent twice, and a screenshot is `1E 'p'` and its 3840 bytes.
 The sketch answers the `raw` line with `1E 'r'` and sends `1E 'b'` when it
 starts. In a Serial session that has heard nothing from the script for 3 s
@@ -423,10 +443,17 @@ This is about the screen only. The keyboard still types ASCII.
   Programs that repaint the whole screen then lost part of their output.
   `shell/shell.py` keeps at most 128 bytes outstanding and the sketch
   acknowledges every 32 it has passed on.
-- **Collisions can lose a keystroke.** The link is half duplex. That test
+- **Collisions used to lose a keystroke.** The link is half duplex. That test
   logged one link error, most likely a key pressed while the ESP32 was
   sending. If both ends start a byte at the same instant on different lines,
-  each can take the other's bit for an acknowledgement. Not fixed yet.
+  each can take the other's bit for an acknowledgement. Since the link
+  layer, the frame that suffered is dropped and sent again.
+- **A replug can slip the link by a bit.** A byte under way when the cable
+  goes in or out can lose or gain a bit on the calculator's side, and every
+  byte after it then reads shifted. The calculator's link hardware drops
+  the half byte once the line has been quiet for a few seconds, and
+  `OSLinkReset` clears it at once. Before the link layer this garbled the
+  screen; now the frames fail their check and are sent again.
 - **The terminal type matters for keys.** Under `vt100`, programs have no
   code for Page Up and Page Down, and `less` only accepts the arrow keys'
   "application" codes, which it switches on at start. The terminal now

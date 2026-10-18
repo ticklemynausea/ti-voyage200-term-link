@@ -4,13 +4,18 @@ There are no automatic tests for anything that needs the calculator, the
 link or the ESP32, so these are run by hand on the hardware. Each section
 names the feature it covers; run it after changing that feature.
 
+The link layer itself, in `link/`, has automatic tests that run on the
+computer: `make link:test`. Run them first after changing it.
+
 ## A lost link in a session
 
-What it covers: a session asks the ESP32 `1E 'y'` every 2 s, output or not, shows
-`ESP32: no answer, check the link cable` on the bottom row after 12 s of
-silence, takes it away at the next byte, and says
-`[ESP32 restarted, session lost: 2nd+ESC for the menu]` when the answer's
-two letters change. See "A lost link in a session" and "How the pieces
+What it covers: the calculator sends a PING whenever it has sent nothing for
+2 s, output or not; a session shows `ESP32: no answer, check the link cable`
+on the bottom row after 12 s without a frame from the ESP32, takes it away at
+the next one, and says `[ESP32 restarted, session lost: 2nd+ESC for the menu]`
+when the two letters in the answer to the link's HELLO change. Frames that
+are lost or garbled are sent again, so nothing is lost or garbled on the
+screen. See "A lost link in a session" and "How the pieces
 talk" in [terminal.md](terminal.md).
 
 **Before you start.** Flash the ESP32 and send the program from the same
@@ -39,7 +44,7 @@ anything within a couple of seconds of them is right.
 | L11 |  | In the menus: wait on the main menu, the settings menu, the SSH host list. | Wi-Fi status as before, host and network lists complete and correct. A late `'y'` answer from the end of a session does not appear anywhere. |
 | L12 |  | Debug → Local echo, and Debug → Key codes, each for 20 s without typing. | No banner: these sessions do not use the link. |
 | L13 |  | SSH: `yes`, and after a few seconds press 2nd+ESC. | The menu comes back within a second or two, while the output is still pouring in. Before, the keys were only read once the output paused. |
-| L14 |  | SSH: `yes`, then Ctrl-C (◆ + C). | `yes` stops within a few seconds. A key pressed during a stream can be lost to a collision: press it again if nothing happens, and note how many tries it took. |
+| L14 |  | SSH: `yes`, then Ctrl-C (◆ + C). | Nothing is lost to a collision any more: `yes` stops within a few seconds of one press. Note it if a second press was needed. |
 | L15 |  | SSH: `seq 1 100000`, and press 2nd+APPS during it, with `make screenshots` attached. | The screenshot is saved, complete, showing numbers. The numbers carry on afterwards. |
 
 ### The cable is pulled
@@ -51,15 +56,15 @@ and then `seq 1 30`, so the prompt sits on the last row.
 |---|---|---|---|
 | L20 | pass | Quiet SSH session with the prompt on the last row. Pull the calculator's link cable. | After about 12 s (no later than 15 s) the bottom row shows the banner in reverse video. The cursor stops blinking. |
 | L21 | pass | Then plug it back in, without typing. | Within about 2 s the banner goes and the bottom row is exactly what was under it: the prompt, with the cursor back. The session works: `echo ok`. |
-| L22 | pass | As L20, but type a few letters while the cable is out, then plug it back in. | Nothing crashes, the banner goes as in L21. Note whether the letters typed arrived late, arrived in part, or were dropped: any of those is acceptable, but write down which. |
+| L22 |  | As L20, but type a few letters while the cable is out, then plug it back in. | Nothing crashes, the banner goes as in L21. The letters typed arrive once the cable is back, late but in order, none missing; only typing more than the calculator can hold (a few hundred letters) loses the rest. |
 | L23 | pass | Pull the cable for 5 s only during a quiet session, then plug it back. | No banner at all. The session carries on. |
-| L24 | fail | SSH: `while true; do date; sleep 1; done`. Pull the cable for 30 s, then plug it back. | Banner after about 12 s. After plugging back, within about 2 s, the banner goes and the dates from the gap arrive in a burst, **none missing**, clean and not garbled: the ESP32 sent nothing while the cable was out and left the SSH output unread. Then one a second again. 2nd+ESC afterwards reaches a working menu. |
+| L24 |  | SSH: `while true; do date; sleep 1; done`. Pull the cable for 30 s, then plug it back. | Banner after about 12 s. After plugging back, within a few seconds, the banner goes and the dates from the gap arrive in a burst, **none missing**, clean and not garbled: the ESP32 sent nothing while the cable was out and left the SSH output unread. Then one a second again. 2nd+ESC afterwards reaches a working menu. |
 | L29 |  | L24 five times in a row, plugging the cable back at a different moment each time. | Each time as in L24. If the menu is ever left at "ESP32: no answer", go on with L38. |
-| L24b |  | SSH: `while true; do date; sleep 1; done`. Unplug the cable and plug it back **at once**, five times, a while apart. | Each time the output may garble for a few seconds, and keys may not get out meanwhile. Then it comes back clean by itself: the dates carry on readable, none missing after that, and keys work. No banner, no restart of `term()`, no reset of the ESP32. Note how many seconds each took from the replug to clean dates; expect about 5 s plus a few. Ctrl-L redraws what was garbled. |
+| L24b |  | SSH: `while true; do date; sleep 1; done`. Unplug the cable and plug it back **at once**, five times, a while apart. | Nothing is garbled at any point. After a replug the dates may pause for a few seconds and then catch up, none missing; keys typed meanwhile arrive late. No banner, no restart of `term()`, no reset of the ESP32. Note how many seconds each pause took; expect about 5 s plus a few. The Cardputer's link page may count link errors and resends: that is the link layer at work. |
 | L25 |  | Serial session with `make shell`: L20 and L21 again. | Same as SSH. |
 | L26 | pass | Settings → SSH hosts → a host → at a question, pull the cable for 20 s, then plug it back. | Banner while it is out. After plugging back the banner goes, the question is still there and can be answered. |
 | L27 | pass | Pull the cable during a quiet SSH session, wait for the banner, press 2nd+ESC. Then plug the cable back. | The menu comes back at once, with "ESP32: no answer" and its entries greyed. After plugging back the menu's status returns within a few seconds and the entries can be chosen. A new SSH session works. |
-| L28 | pass | Pull the cable while `seq 1 3000` is printing, wait 20 s, plug back. | Banner shows once printing stops reaching the calculator. After plugging back, the rest of the numbers arrive and the banner goes. A character or two at the moment the cable came out may be missing; nothing after that. |
+| L28 |  | Pull the cable while `seq 1 3000` is printing, wait 20 s, plug back. | Banner shows once printing stops reaching the calculator. After plugging back, the rest of the numbers arrive and the banner goes. No number is missing, not even at the moment the cable came out. |
 
 ### The ESP32 restarts or goes away
 
@@ -76,29 +81,22 @@ and then `seq 1 30`, so the prompt sits on the last row.
 | L38 |  | Main menu, ESP32 powered off for a minute: the menu resets its link every 3 s meanwhile. Power the ESP32 again. | "ESP32: no answer" while it is off. Within a few seconds of the ESP32 starting, the Wi-Fi status is back and the entries can be chosen; nothing else shows on the screen. If a run of L29 left the menu at "no answer" with the ESP32 on, the same: it comes back within about 10 s, without leaving `term()` or resetting the ESP32. |
 | L39 |  | SSH session, 2nd+ESC with the cable out, wait 20 s in the menu, plug the cable back. | The menu answers again within a few seconds. The Cardputer shows the SSH session closed: the menu sent the end of the session again after resetting its link. |
 
-### Old and new together
+### The link's own bytes in the output
 
-Updating only one side is easy to do by mistake, so check what happens.
-
-| ID | Result | Steps | Expected |
-|---|---|---|---|
-| L40 | not run | New program on the calculator, a sketch from before this change on the ESP32. Start SSH and leave it quiet. | After 2 s the ESP32 takes `'y'` for an unknown command and ends the session: the shell stops answering and the Cardputer's log says "calculator: menu". This is the documented limit; flashing the ESP32 fixes it. |
-| L41 | not run | Old program on the calculator, new sketch on the ESP32. Use SSH and Serial for a while. | Everything works as before. The ESP32 is never asked `'y'`. |
-
-### A real 0x1E in the output
-
-A real `0x1E` from the host is sent to the calculator doubled, and from
-`shell.py` to the ESP32 as `1E 'e'`, so the host's output can never pass for
-an answer or a control line. Run each in SSH and again in a Serial session
-with `make shell`.
+The output goes to the calculator in frames, so no byte of it can pass for
+the ESP32: not `0x1E`, which used to mark its answers, nor `C0` and `C1`,
+which delimit frames. From `shell.py` to the ESP32 a real `0x1E` is sent as
+`1E 'e'`, so it can never pass for a control line either. Run each in SSH
+and again in a Serial session with `make shell`.
 
 | ID | Result | Steps | Expected |
 |---|---|---|---|
-| L50 | pass | `printf 'a\x1ew+fake status\nb\n'` | `aw+fake status` on one line, `b` on the next: the `1E` itself draws nothing, and nothing is taken for an answer. |
-| L51 | pass | Wait 5 s, then `printf '\x1eyQQ\n'`, and again with `ZZ`. | `yQQ` and `yZZ` are shown. No restart line. |
-| L52 | pass | `printf '\e[10;20HX\x1e\e[12;20HY\n'` | `X` at row 10, `Y` at row 12, both in column 20: a `1E` between two sequences leaves both alone. |
-| L53 | pass | `head -c 20000 /dev/urandom` (in Serial: a few times), then `reset`. | Garbage on the screen, then a clean terminal after `reset`. The session goes on working: `echo ok`. In Serial, the ESP32 stays in raw mode (no monitor text appears) and output keeps flowing afterwards, which shows that runs of `1E` in the output neither start control lines nor upset the acknowledgements. |
-| L54 | pass | Serial only: `printf '\x1e\x1e\x1emonitor\n'; echo still-raw` | Three `1E` draw nothing, then `monitor` and `still-raw` are shown. The ESP32 stays in raw mode. |
+| L50 |  | `printf 'a\x1ew+fake status\nb\n'` | `aw+fake status` on one line, `b` on the next: the `1E` itself draws nothing, and nothing is taken for an answer. |
+| L51 |  | Wait 5 s, then `printf '\x1eyQQ\n'`, and again with `ZZ`. | `yQQ` and `yZZ` are shown. No restart line. |
+| L52 |  | `printf '\e[10;20HX\x1e\e[12;20HY\n'` | `X` at row 10, `Y` at row 12, both in column 20: a `1E` between two sequences leaves both alone. |
+| L53 |  | `head -c 20000 /dev/urandom` (in Serial: a few times), then `reset`. | Garbage on the screen, then a clean terminal after `reset`. The session goes on working: `echo ok`. In Serial, the ESP32 stays in raw mode (no monitor text appears) and output keeps flowing afterwards, which shows that runs of `1E` in the output neither start control lines nor upset the acknowledgements. The random bytes contain `C0` and `C1` too: the link carries them like any other. |
+| L54 |  | Serial only: `printf '\x1e\x1e\x1emonitor\n'; echo still-raw` | Three `1E` draw nothing, then `monitor` and `still-raw` are shown. The ESP32 stays in raw mode. |
+| L55 |  | `printf 'a\xc0\xc1\xc0b\n'; printf '\xc1\xc1\xc1\xc1\xc1\xc1c\n'` | Two lines, ending in `b` and `c`, with a few blocks or nothing where the stray bytes were. The session carries on: `echo ok`. The Cardputer's link errors do not go up. |
 
 ## Serial sessions with make shell
 
@@ -142,19 +140,13 @@ session, unless it says otherwise.
 | S24 |  | With the port gone, exit the shell (`exit`, typed in the `--mirror` window). | `make shell` ends at once instead of waiting for the port. |
 | S25 |  | Start `make shell` with the ESP32 unplugged. | "No ESP32 found", as before. |
 
-### Old and new together
-
-| ID | Result | Steps | Expected |
-|---|---|---|---|
-| S30 |  | New `shell.py`, old sketch on the ESP32: `printf 'a\x1eb\n'`. | `ab`: the old sketch passes `1E 'e'` on as it is, and the calculator drops it as a mark and a letter that is not an answer. A real `0x1E` is lost, nothing else. |
-
 ## Soak tests: long, heavy streams
 
 The hardest cases, so they come last: run them once everything above
 passes. They check that the link stays sound with the link full for
-minutes on end. That covers the doubled `0x1E` bytes, the `1E 'e'` escapes
-and the window's acknowledgements under load, and pings and answers
-meeting a busy link.
+minutes on end. That covers the link layer's frames and acknowledgements,
+the `1E 'e'` escapes and the serial window's acknowledgements under load,
+and pings and answers meeting a busy link.
 
 The link carries about 3 KB/s, so 1 MB takes about six minutes. Keep the
 Cardputer's link page open (or note `/stats` in the Serial Monitor
@@ -164,23 +156,22 @@ otherwise, these must hold throughout:
 - no banner, no restart line, no line about the computer
 - the calculator keeps drawing: the output never stops for more than a
   second or two
-- afterwards, Ctrl-C (or `q`) stops the program within a few seconds. A key
-  pressed during a stream can collide with the ESP32's bytes and be lost
-  (see "Collisions" under Findings in [terminal.md](terminal.md)), so press
-  it again if nothing happens
+- afterwards, Ctrl-C (or `q`) stops the program within a few seconds of one
+  press: a key that collides with the ESP32's bytes is sent again
 - afterwards, `echo ok` works and the prompt is where it should be (run
   `reset` first after binary output)
-- the link page's "dropped" count does not go up
+- the link page's "dropped" count does not go up. Its "link errors" and
+  "resends" may: they count the frames the link layer had to send again
 
 | ID | Result | Steps | Expected |
 |---|---|---|---|
 | K01 |  | SSH: `yes` for 10 minutes, then Ctrl-C. | As above. |
-| K02 |  | SSH: `head -c 1000000 /dev/urandom`, to the end (about 6 minutes). Then `reset`. | As above. The random bytes contain thousands of `0x1E`: none of them ends the session, shows the restart line or leaves stray answer text. The calculator does not hang on the escape sequences that random bytes make. |
+| K02 |  | SSH: `head -c 1000000 /dev/urandom`, to the end (about 6 minutes). Then `reset`. | As above. The random bytes contain thousands of `0x1E`, `C0` and `C1`: none of them ends the session, shows the restart line or leaves stray text. The calculator does not hang on the escape sequences that random bytes make. |
 | K03 |  | Serial with `make shell`: `yes` for 10 minutes, then Ctrl-C. Check `ps -o rss= -p <pid of shell.py>` at the start and the end. | As above. The output does not slow down over time, which would point to the window shrinking. `shell.py`'s memory stays about the same. |
 | K04 |  | Serial with `make shell`: `head -c 1000000 /dev/urandom`, to the end. Then `reset`. | As above. The ESP32 stays in raw mode: no monitor text shows up as keys or on the screen. The output keeps its speed to the end. This shows that the `1E 'e'` escapes and the acknowledgements stay in step. |
 | K05 |  | Serial with `make shell`: `seq 1 200000`, to the end. | As above. The last lines read `199999`, `200000`. |
 | K06 |  | SSH: `yes`, and press 2nd+APPS five times, a few seconds apart, with `make screenshots` attached. | Five complete PNG files, each showing lines of `y`. The stream carries on after each one. |
-| K07 |  | Both ways at once. In SSH run `cat`, then hold down a letter key for 60 s (auto-repeat), so that every key is echoed back while more are typed. | The session survives and `cat` is still echoing at the end. Ctrl-D ends it. Some keys may be lost to collisions: note roughly how many letters came back for 60 s of holding, for comparison between runs. |
+| K07 |  | Both ways at once. In SSH run `cat`, then hold down a letter key for 60 s (auto-repeat), so that every key is echoed back while more are typed. | The session survives and `cat` is still echoing at the end. Ctrl-D ends it. No key is lost: compare the letters that came back with the auto-repeat rate times 60 s. |
 | K08 |  | Serial with `make shell`: `seq 1 100000`. Open the CHAR strip (2nd + plus) for 20 s, then close it with any key. | The output carries on where it stopped, **without a gap**: the ESP32 stopped reading `make shell` while the calculator was not taking bytes. |
 | K09 |  | SSH: the same as K08. | The same: without a gap. The ESP32 stopped reading the SSH output while the calculator was not taking bytes. |
 | K10 |  | Serial with `make shell`: `head -c 1000000 /dev/urandom`. Pull the calculator's cable for 30 s half way through, then plug it back. | Banner while it is out. After plugging back the stream carries on at full speed to the end; the ESP32 is still in raw mode, and the output after `reset` and `echo ok` is clean. |
@@ -190,7 +181,9 @@ otherwise, these must hold throughout:
 ## Recording a run
 
 The Result column holds the last run: pass, fail, or not run; empty means
-not run yet. The results there are from the run of 17 October 2026.
+not run yet. The results there are from the run of 17 October 2026, before
+the link layer; the tests whose expectations it changed are empty again,
+and the rest are worth running again too.
 
 Write down the date, the commit (from the menu's first line), the board,
 and for each test either "ok" or what happened instead. A failing test is

@@ -124,8 +124,11 @@ arduino-cli monitor -p /dev/cu.usbmodemXXXX -c baudrate=115200
 
 Replace the port with your own (`arduino-cli board list`). The sketches also
 open in the Arduino IDE. The terminal sketch also needs the SSH library:
-`arduino-cli lib install LibSSH-ESP32`. For it there is a shortcut,
-`make esp32_stamps3:term:flash`, which finds the port by itself.
+`arduino-cli lib install LibSSH-ESP32`, and the link layer in `link/`, which
+it shares with the calculator's program: the Makefile passes it to
+`arduino-cli` with `--library link`, and for the Arduino IDE the `link`
+folder goes in the libraries folder (or a link to it). For it there is a
+shortcut, `make esp32_stamps3:term:flash`, which finds the port by itself.
 
 ---
 

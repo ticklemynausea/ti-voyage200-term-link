@@ -69,9 +69,11 @@ the bridge's status page.
 ![The Voyage 200 runs calc/term and connects over its link port to an ESP32 running esp32_tilink_term, which reaches a shell on the computer over USB serial and shell/shell.py, or a shell on another host over Wi-Fi and SSH](docs/pics/diagram.svg)
 
 The ESP32 speaks the link port's two-wire handshake itself, bit by bit, and
-carries raw bytes in both directions, without TI's packet protocol. A few
-commands ride on top of them, marked by the byte `0x1E`
-([how the pieces talk](docs/terminal.md#how-the-pieces-talk)).
+carries the bytes in both directions in frames of its own, without TI's
+packet protocol. Each frame is checked, acknowledged and sent again if it
+was lost, so nothing arrives garbled, not even after the cable was
+replugged. The menu's commands and the ESP32's answers go in frames of their
+own kinds ([how the pieces talk](docs/terminal.md#how-the-pieces-talk)).
 
 ## What you need
 

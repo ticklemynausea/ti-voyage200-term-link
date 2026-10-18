@@ -22,6 +22,10 @@ shell/                               what runs on the computer for a session
   shell.py                           joins a shell on the computer to the ESP32's port; saves screenshots
   tmux_calc.conf                     tmux settings for the calculator's screen
   screenrc_vt100                     screen settings for the same
+link/                                the link layer between calc/term and esp32_tilink_term
+  src/tlink.h, src/tlink.c           frames, CRC, acknowledgements and resends, in plain C for both
+  test/test_link.c                   runs it over a simulated line that garbles and slips (make link:test)
+  library.properties                 lets the sketch take it as an Arduino library
 Makefile                             shortcuts for the terminal
 calc-to-calc-protocol-reversed/      the calculator-to-calculator protocol: documentation and data
   README.md                            sniffer wiring, flashing, running a capture session
@@ -51,7 +55,8 @@ They are in the git history, last present in commit `d4abde0`:
   using a custom frame format instead of TI's packets.
   - It needs a C program on the calculator (GCC4TI).
   - It was never tested end to end.
-  - The terminal took this route again, with raw bytes and no frames.
+  - The terminal took this route again, first with raw bytes and no
+    frames, then with frames of its own (`link/`).
 - `arduino/ti_link_arduino/` with `calculator/tilink.c`: the first experiment,
   for an Arduino Uno/Nano.
 
