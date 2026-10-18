@@ -7,20 +7,39 @@ KEYS IN A SESSION
 diamond + letter   Ctrl + letter: C stop, D log out,
                    Z suspend, L redraw, I Tab (2nd + I:
                    Shift-Tab), space Ctrl-Space
-shift + Hand       Alt: the next key goes after an ESC
+MODE (shift+Hand)  Alt: the next key goes after an ESC
+APPS Tab   CLEAR erase the line   LN search the history
 diamond + up/down  Page Up / Page Down
 diamond + l/r      a word back / forward (ESC B, ESC F)
 Hand + arrows      Ctrl + arrows (shift + arrows: Shift)
 2nd + up/down      Home / End (2nd + left/right too)
-2nd + plus         symbols the keyboard lacks: a strip
-                   opens on the bottom rows, a letter picks
+2nd + plus         a strip of symbols the keyboard lacks
 F1 to F8           the function keys; diamond + F1 to F4
                    are F9 to F12
 2nd + APPS         screenshot, saved on the computer
 2nd + backspace    Insert; diamond + backspace: Delete
-ENTER, ESC, the arrows and backspace do what they say.
 The divide key types /   Use the minus key for -
-Ctrl with a symbol (Ctrl-], Ctrl-\) cannot be typed.
+More keys, and the keys for tmux, on the next page.
+----
+MORE KEYS
+
+diamond + APPS     Shift-Tab
+diamond + CLEAR    resets this screen; sends nothing
+diamond + MODE     Ctrl-]
+2nd + LN           Ctrl-_ (undo)
+diamond + LN       Ctrl-\ (quits what Ctrl-C does not)
+diamond + ^        Ctrl-^
+2nd + ^            ~
+
+TMUX: the prefix is TAN, or diamond + B
+SIN / COS          the previous / next window
+2nd + SIN          the list of windows
+2nd + COS          the window before this one
+2nd + TAN          a new window
+diamond + SIN      a page back (copy mode; q leaves)
+diamond + TAN      copy mode
+diamond + COS      pastes what copy mode copied
+Prefix then B hides the bar or shows it again.
 ----
 THE MENU
 
@@ -37,8 +56,3 @@ F4 Settings    F1 Wi-Fi: up to 4 networks
 F5 Debug       local echo, test pattern, key codes.
 
 The menu's bottom row shows the Wi-Fi state.
-
-SEVERAL WINDOWS
-
-tmux and screen work. In tmux the prefix is diamond + B,
-then: C new window, N next, W list, B hide the bar.

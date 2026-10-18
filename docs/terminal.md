@@ -308,7 +308,21 @@ cannot switch the mode behind its back.
 | arrows | the arrow keys |
 | ◆ + letter | Ctrl + letter (the keyboard has no Ctrl key) |
 | ◆ + space | Ctrl-Space (NUL, code 0) |
-| shift + Hand | nothing itself: the next key goes out after an ESC, which is Alt + that key. Pressed again, it is called off |
+| APPS | Tab, in one key (◆ + I is Tab too) |
+| ◆ + APPS | Shift-Tab (`ESC [ Z`), as 2nd + I |
+| CLEAR | Ctrl-U, which erases the line in the shell |
+| ◆ + CLEAR | nothing: resets this terminal and clears its screen, as `ESC c` from the host would. For a screen left in a mess that the program in it does not redraw |
+| LN | Ctrl-R, which searches the shell's history |
+| 2nd + LN | Ctrl-_, undo in the shell and in emacs |
+| ◆ + LN | Ctrl-\, which quits a program that Ctrl-C does not stop |
+| ◆ + MODE | Ctrl-] |
+| 2nd + ^ | `~` (the calculator's π) |
+| SIN / COS | tmux: the previous / next window (Ctrl-B `p`, Ctrl-B `n`) |
+| TAN | tmux's prefix, Ctrl-B (◆ + B too) |
+| 2nd + SIN / COS / TAN | tmux: the list of windows / the window before this one / a new window (Ctrl-B `w`, `l`, `c`) |
+| ◆ + SIN | tmux: copy mode, a page back (Ctrl-B Page Up). `q` leaves it |
+| ◆ + TAN / ◆ + COS | tmux: copy mode / paste what it copied (Ctrl-B `[`, `]`) |
+| MODE, or shift + Hand | nothing itself: the next key goes out after an ESC, which is Alt + that key. Pressed again, it is called off |
 | 2nd + I | Shift-Tab (`ESC [ Z`). Tab is ◆ + I, and shift cannot be added to that |
 | ◆ + up / down | Page Up / Page Down |
 | ◆ + left / right | Alt-B / Alt-F (`ESC b`, `ESC f`): a word back / forward in the shell. ESC then B or F does the same |
@@ -337,16 +351,18 @@ keyboard, in either case. The ones used most:
 | ◆ + R | Ctrl-R | searches the shell's history |
 | ◆ + A / ◆ + E | Ctrl-A / Ctrl-E | start / end of the line in the shell |
 
-Ctrl with a symbol is out of reach. The program would apply the same rule
-to `[`, `\`, `]`, `^`, `_` and `@`, but the keyboard only types most of them
-with 2nd, and ◆ + 2nd + a key sends nothing: tried with `]`, which is 2nd +
-divide. So there is no Ctrl-] or Ctrl-\. Ctrl-[ is not missed, since it is
+Ctrl with a symbol is mostly out of the usual reach. The program applies
+the same rule to `[`, `\`, `]`, `^`, `_` and `@`, but the keyboard types most
+of them only with 2nd, and ◆ + 2nd + a key sends nothing: tried with `]`,
+which is 2nd + divide. So the ones in use have keys of their own: Ctrl-] is
+◆ + MODE, Ctrl-\ is ◆ + LN, Ctrl-_ is 2nd + LN, and Ctrl-@ is ◆ + space.
+`^` has a key, so ◆ + ^ is Ctrl-^ (8286). Ctrl-[ is not missed, since it is
 the ESC key.
 
 **Alt.** The keyboard has no Alt key, and a terminal sends Alt + a key as
-ESC followed by that key. Shift + Hand gives the next key that ESC, in one
-go, so a program that waits only briefly after an ESC (vim, tmux) still
-sees one key. It works with any key: shift + Hand then `.` puts in the last
+ESC followed by that key. MODE, or shift + Hand, gives the next key that
+ESC, in one go, so a program that waits only briefly after an ESC (vim, tmux) still
+sees one key. It works with any key: MODE then `.` puts in the last
 command's last argument in bash or zsh, then `d` deletes a word forward,
 then backspace a word back. Nothing on the screen shows that it is waiting
 for a key, since the OS's own indicators are kept off it (see the findings).
@@ -465,6 +481,11 @@ This is about the screen only. The keyboard still types ASCII.
   function rather than a character: 2nd + plus is 4139. The CHAR menu
   belongs to AMS, hence the program's own symbol strip. With the F keys 2nd
   changes nothing (2nd + F1 is F1, 268), while ◆ adds 8192 (◆ + F1 is 8460).
+- **The keys of the calculator's functions** are free in a session, and the
+  program gives them terminal keys: MODE 266, CLEAR 263, APPS 265, LN 262,
+  SIN, COS and TAN 259 to 261. ◆ adds 8192 to each and 2nd adds 4096 to LN,
+  SIN, COS and TAN (2nd + APPS, 4361, is the screenshot key). 2nd + ^ is
+  140, the π character.
 - **Hand adds 32768, but only to the arrows** (Hand + left is 33105). Hand
   with a letter or backspace puts nothing in the keyboard queue. Shift +
   Hand is a key of its own, 380, which the program uses for Alt.

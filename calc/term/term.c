@@ -12,7 +12,14 @@
 //   diamond + left/right  a word back / forward (Alt-B / Alt-F)
 //   diamond + space    Ctrl-Space (NUL)
 //   diamond + F1 to F4 F9 to F12
-//   shift + Hand       Meta: the next key goes out after an ESC
+//   shift + Hand       Meta: the next key goes out after an ESC (MODE too)
+//   APPS, CLEAR, LN    Tab, Ctrl-U, Ctrl-R
+//   SIN, COS, TAN      tmux: previous window, next window, the prefix
+//   2nd + SIN/COS/TAN  tmux: window list, last window, new window
+//   dia. + SIN/COS/TAN tmux: a page back, paste, copy mode
+//   diamond + APPS     Shift-Tab; diamond + CLEAR resets this screen
+//   2nd / diamond + LN Ctrl-_ (undo) / Ctrl-backslash
+//   diamond + MODE     Ctrl-]; 2nd + ^ types ~
 //   Hand + arrow       Ctrl + arrow; shift + arrow sends Shift + arrow
 //   2nd + up/down      Home / End (2nd + left/right too)
 //   2nd + backspace    Insert
@@ -48,6 +55,11 @@
 // nothing. Shift + Hand is a key of its own, 380, which stands in for Meta.
 #define KEY_HAND 32768
 #define KEY_META 380
+// The keys of the calculator's functions, which a terminal has no use for.
+#define KEY_SIN 259
+#define KEY_COS 260
+#define KEY_TAN 261
+#define KEY_LN 262
 
 // ---------- screen ----------
 
@@ -911,7 +923,7 @@ static void handleKey(unsigned short key)
   };
   char c;
 
-  if (key == KEY_META) {
+  if (key == KEY_META || key == KEY_MODE) {
     metaPending = !metaPending;  // pressed again, it is called off
     return;
   }
@@ -919,7 +931,7 @@ static void handleKey(unsigned short key)
     charMenu();
   } else if (key == KEY_DIAMOND + KEY_BACKSPACE) {
     keySend("\x1B[3~", 4);  // DEL on the keyboard: deletes forwards
-  } else if (key == KEY_2ND + KEY_BACKSPACE) {
+  } else if (key == KEY_INS) {
     keySend("\x1B[2~", 4);  // INS on the keyboard
   } else if (key == KEY_BACK_TAB) {
     keySend("\x1B[Z", 3);
@@ -931,6 +943,45 @@ static void handleKey(unsigned short key)
   } else if (key >= KEY_DIAMOND + 'a' && key <= KEY_DIAMOND + 'z') {
     c = key - KEY_DIAMOND - 'a' + 1;
     keySend(&c, 1);
+  } else if (key == KEY_APPS) {
+    keySend("\t", 1);
+  } else if (key == KEY_DIAMOND + KEY_APPS) {
+    keySend("\x1B[Z", 3);  // Shift-Tab, next to Tab
+  } else if (key == KEY_CLEAR) {
+    keySend("\x15", 1);  // Ctrl-U: erases the line in the shell
+  } else if (key == KEY_DIAMOND + KEY_CLEAR) {
+    // Resets this terminal and clears its screen, sending nothing: for a
+    // screen left in a mess that the program in it will not redraw.
+    hideCursor();
+    termPuts("\x1B" "c");
+  } else if (key == KEY_DIAMOND + KEY_MODE) {
+    keySend("\x1D", 1);  // Ctrl-], which diamond + 2nd + divide cannot give
+  } else if (key == KEY_LN) {
+    keySend("\x12", 1);  // Ctrl-R: searches the shell's history
+  } else if (key == KEY_2ND + KEY_LN) {
+    keySend("\x1F", 1);  // Ctrl-_: undo
+  } else if (key == KEY_DIAMOND + KEY_LN) {
+    keySend("\x1C", 1);  // Ctrl-backslash: quits what Ctrl-C does not stop
+  } else if (key == KEY_2ND + '^') {
+    keySend("~", 1);  // 2nd + ^ is pi on the calculator
+  } else if (key == KEY_SIN) {
+    keySend("\x02" "p", 2);  // tmux: the previous window
+  } else if (key == KEY_COS) {
+    keySend("\x02" "n", 2);  // tmux: the next window
+  } else if (key == KEY_TAN) {
+    keySend("\x02", 1);  // tmux's prefix, Ctrl-B
+  } else if (key == KEY_2ND + KEY_SIN) {
+    keySend("\x02" "w", 2);  // tmux: the list of windows
+  } else if (key == KEY_2ND + KEY_COS) {
+    keySend("\x02" "l", 2);  // tmux: the window before this one
+  } else if (key == KEY_2ND + KEY_TAN) {
+    keySend("\x02" "c", 2);  // tmux: a new window
+  } else if (key == KEY_DIAMOND + KEY_SIN) {
+    keySend("\x02" "\x1B[5~", 5);  // tmux: copy mode, a page back
+  } else if (key == KEY_DIAMOND + KEY_COS) {
+    keySend("\x02" "]", 2);  // tmux: pastes what copy mode copied
+  } else if (key == KEY_DIAMOND + KEY_TAN) {
+    keySend("\x02" "[", 2);  // tmux: copy mode
   } else if (key == KEY_ENTER) {
     keySend("\r", 1);
   } else if (key == KEY_BACKSPACE) {

@@ -185,6 +185,18 @@ press the keys, then ◆ + D. Run them in bash (or zsh) where a step says so.
 | X09 |  | `htop`: ◆ + F1, ESC, then ◆ + F2. | F9 opens the kill menu, ESC closes it, F10 quits. |
 | X10 |  | zsh or `vim` insert mode: Hand + left / right. | The cursor moves a word at a time. |
 | X11 |  | Debug, Key codes: shift + Hand. | `380` is printed, and the next key prints its code as usual. |
+| X12 |  | bash: `ec`, then APPS. | It completes to `echo`. |
+| X13 |  | bash: type `one two`, then CLEAR. | The line is erased. |
+| X14 |  | bash: LN, then type `echo`. | The history search finds the last `echo`. |
+| X15 |  | bash: MODE, `.`, as in X01. | The last argument is put in, as with shift + Hand. |
+| X16 |  | tmux with two windows: COS, SIN, then TAN, `c`. | Next window, previous window, then a new one. |
+| X17 |  | `cat -v`: ◆ + ^. | `^^` |
+| X18 |  | `cat -v`: ◆ + APPS, ◆ + MODE, 2nd + LN, ◆ + LN, 2nd + ^. | `^[[Z^]^_^\~` (◆ + LN may end `cat` instead: Ctrl-\ quits it) |
+| X19 |  | bash: type `one two`, then 2nd + LN. | The last word typed is undone. |
+| X20 |  | `cat /bin/ls` or `head -c 2000 /dev/urandom`, then ◆ + CLEAR. | The screen is clear, the cursor at the top left, and new output looks right. |
+| X21 |  | tmux: 2nd + TAN, 2nd + TAN, then 2nd + SIN, ESC; 2nd + COS. | Two new windows; the list opens and closes; then the window before. |
+| X22 |  | tmux, after `seq 100`: ◆ + SIN, ◆ + up a few times, `q`. | Copy mode a page back, more pages back, then out of it. |
+| X23 |  | tmux: ◆ + TAN, move to a word, select and copy it (emacs keys: ◆ + space, move, MODE then w; vi keys: Space, move, ENTER); then ◆ + COS. | The copied text is typed at the prompt. |
 
 ## Soak tests: long, heavy streams
 
