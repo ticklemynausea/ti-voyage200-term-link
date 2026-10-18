@@ -308,6 +308,7 @@ cannot switch the mode behind its back.
 | ◆ + letter | Ctrl + letter (the keyboard has no Ctrl key) |
 | 2nd + I | Shift-Tab (`ESC [ Z`). Tab is ◆ + I, and shift cannot be added to that |
 | ◆ + up / down | Page Up / Page Down |
+| ◆ + left / right | Alt-B / Alt-F (`ESC b`, `ESC f`): a word back / forward in the shell. ESC then B or F does the same |
 | 2nd + up / down | Home / End (2nd + left / right too) |
 | 2nd + plus (CHAR) | a symbol the keyboard lacks, picked from a strip on the bottom two rows |
 | F1 to F8 | the function keys |

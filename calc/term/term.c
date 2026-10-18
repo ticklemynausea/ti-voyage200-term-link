@@ -9,6 +9,7 @@
 // Keys in a session:
 //   diamond + letter   Ctrl + letter
 //   diamond + up/down  Page Up / Page Down
+//   diamond + left/right  a word back / forward (Alt-B / Alt-F)
 //   2nd + up/down      Home / End (2nd + left/right too)
 //   2nd + plus (CHAR)  symbols the keyboard lacks: pick one by its letter
 //   2nd + ESC (QUIT)   back to the menu; diamond + ESC does the same
@@ -837,6 +838,10 @@ static void handleKey(unsigned short key)
     hostSend("\x1B[5~", 4);
   } else if (key == KEY_DIAMOND + KEY_DOWN) {
     hostSend("\x1B[6~", 4);
+  } else if (key == KEY_DIAMOND + KEY_LEFT) {
+    hostSend("\x1B" "b", 2);  // Alt-B: a word back in the shell
+  } else if (key == KEY_DIAMOND + KEY_RIGHT) {
+    hostSend("\x1B" "f", 2);  // Alt-F: a word forward
   } else if (key == KEY_2ND + KEY_UP || key == KEY_2ND + KEY_LEFT) {
     sendArrow('H');  // Home and End use the arrow keys' code family
   } else if (key == KEY_2ND + KEY_DOWN || key == KEY_2ND + KEY_RIGHT) {
