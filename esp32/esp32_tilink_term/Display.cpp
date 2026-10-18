@@ -161,9 +161,9 @@ void linkPage(const Status &s) {
   countRow(s.dropped.frames ? TFT_ORANGE : TFT_LIGHTGREY, "dropped", s.dropped, nullptr);
   amount(errors, sizeof(errors), s.handshakeErrors);
   add(1, s.handshakeErrors ? TFT_ORANGE : TFT_LIGHTGREY, "%-10s%8s%7s", "handshake", errors, "-");
-  if (seenBytes) add(1, TFT_LIGHTGREY, "last byte    %lu s ago", (unsigned long)((millis() - lastByteAt) / 1000));
-  else add(1, TFT_LIGHTGREY, "last byte    none yet");
-  add(1, TFT_LIGHTGREY, "uptime       %s", up);
+  char last[16] = "none yet";
+  if (seenBytes) snprintf(last, sizeof(last), "%lu s ago", (unsigned long)((millis() - lastByteAt) / 1000));
+  add(1, TFT_LIGHTGREY, "last byte %-12s uptime %s", last, up);
 }
 
 void logPage() {
