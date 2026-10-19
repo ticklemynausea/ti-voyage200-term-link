@@ -142,7 +142,7 @@ session, unless it says otherwise.
 
 ## The Cardputer's memory page
 
-Press `3` on the Cardputer for the memory page. The calculator sends its
+Press `4` on the Cardputer for the memory page. The calculator sends its
 numbers every 5 s while `term` runs.
 
 | ID | Result | Steps | Expected |
@@ -151,6 +151,22 @@ numbers every 5 s while `term` runs.
 | M02 |  | SSH session running `yes` for a minute. | "s ago" still goes no higher than about 5: the reports wait for room but still get through. `yes` keeps its speed. |
 | M03 |  | Quit `term` (2nd+ESC in the menu), then wait 30 s. | "s ago" keeps growing; the numbers stay as they were. Start `term` again: back to at most 5 s. |
 | M04 |  | With `term` running, reset the ESP32. | The calculator's rows come back within a few seconds of the ESP32 starting, without waiting for the minute the archive takes. |
+
+## The clock
+
+The ESP32 sets the calculator's clock from an NTP server on its own
+network. Set the time zone first in the Serial Monitor, such as
+`/tz lisbon`. Press `2` on the Cardputer for the time
+page; on a Stamp S3, `/settings` shows the servers.
+
+| ID | Result | Steps | Expected |
+|---|---|---|---|
+| T01 |  | On the network whose router serves NTP, set the calculator's clock wrong by hand, then start `term`. | Within a few seconds the calculator's clock (MODE, F3 Clock, or the status bar) shows the right local time, to within 2 s, and is on. The time page's time is green, the gateway row green, "calculator set" counts up from 0. |
+| T02 |  | `/tz UTC`, then leave `term` and start it again. | The calculator's clock moves to UTC, and its time zone setting is 0. `/tz` back to yours and again: back to local time. |
+| T02b |  | `/tz new york`, `/tz america/new_york`, `/tz EST5EDT,M3.2.0,M11.1.0`, `/tz york`, `/tz atlantis`. | The first two give America/New_York and its string; the third takes the string, with no name; `york` lists America/New_York; `atlantis` says no zone has it. The time zone is unchanged by the last two. |
+| T03 |  | Power the ESP32 off and on, `/settings`. | The time zone is the one set before. |
+| T04 |  | Join a network without NTP (a phone's hotspot), set the calculator's clock wrong, start `term`. | The time page says "none: the time is not set" or "no answer yet", the time is orange or "not set". The calculator's clock stays wrong. |
+| T05 |  | Leave `term` running in the menu for over an hour on the NTP network. | "last answer" goes back to 0 about every hour, and "calculator set" with it. |
 
 ## The OS's modifier indicators
 

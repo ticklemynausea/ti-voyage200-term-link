@@ -27,7 +27,8 @@ menu you open:
   to a host, so no password has to be typed on the calculator.
 
 All the settings are made from the calculator's menus. diamond + APPS sends the
-calculator's screen to the computer as a screenshot.
+calculator's screen to the computer as a screenshot. The ESP32 sets the
+calculator's clock from an NTP server on its network.
 
 Programs confirmed to work on it:
 

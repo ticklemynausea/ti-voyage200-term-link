@@ -248,6 +248,7 @@ waits for it to speak, which gives a slipped link the quiet it needs.
 | STATUS | yes | ESP32 | the answer to `w`: `+` if Wi-Fi is connected or `-` if not, and a line of text |
 | LIST | yes | ESP32 | one entry of the answer to `l` or `m`: the letter, the entry from 0, its text (empty if not set) |
 | SHOT | yes | calculator | a screenshot, in 64 pieces: the piece number and 60 bytes of the screen |
+| TIME | yes | ESP32 | the local time, to set the calculator's clock: the year (2 bytes), month, day, hour, minute, second, and the time zone in minutes east of Greenwich (2 bytes, signed), least significant byte first. See [the clock](#the-clock) |
 | MEM | yes | calculator | its free memory, for the Cardputer's memory page: free RAM (`HeapAvail`), free handles, and from `EM_survey` the archive's free bytes, the bytes a garbage collection would free and the bytes in use, each least significant byte first. Sent every 5 s while nothing else waits to go, and at once after each HELLO_ACK. The archive is counted again only every minute, since that takes longer. `HeapMax` is not used: it compacts the heap each time |
 
 The commands:
@@ -294,6 +295,36 @@ passes nothing on until it has seen `1E 'r'`, and when the ESP32 restarts
 under it (`ESP-ROM:` from the boot loader, then `1E 'b'`) it asks for raw
 mode again and waits. It also takes the port for itself, so a second copy
 cannot switch the mode behind its back.
+
+## The clock
+
+The ESP32 sets the calculator's clock (`TimeZone_Set`, `DateAndTime_Set`,
+and `ClockOn` if it was off) with a TIME frame, after each HELLO and after
+each answer from an NTP server, which SNTP asks every hour. That way a
+change to or from daylight saving reaches the calculator within the hour.
+It sends one only when nothing else waits to go.
+
+Only NTP servers on the network joined are asked: the one its DHCP server
+announces (option 42), and its gateway. No public server is. On a network
+without one the calculator's clock is left alone, and so it is when the
+time came from another network: leaving a network forgets that the time
+was set. The ESP32 has no battery-backed clock, so after power-up it
+knows the time only once a server has answered.
+
+The time zone is set in the Serial Monitor with `/tz` and a zone's name
+from the tz database, in any case: whole, as `/tz Europe/Lisbon`, or only
+its city, as `/tz lisbon` or `/tz new york`, when one zone has it. A name it
+does not know lists the zones with that text in their name, so `/tz
+america` lists them all for America. Daylight saving then changes by
+itself. The name is kept in the ESP32's flash; it starts as `UTC`. `/tz`
+alone shows it, and `/settings` shows it with the servers, as does the
+Cardputer's time page.
+
+The ESP32 has no time zone database of its own, only POSIX TZ strings
+such as `WET0WEST,M3.5.0/1,M10.5.0`. `esp32/mkzones.py` makes the table of
+names and strings, `Zones.h`, from a computer's `/usr/share/zoneinfo`: run
+it again when the rules of a zone change. A POSIX string works in `/tz`
+too, for a zone not in the table.
 
 ## Keys in a session
 

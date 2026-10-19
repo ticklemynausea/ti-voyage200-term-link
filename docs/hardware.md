@@ -73,8 +73,8 @@ first ESP32 port they find.
 
 If the upload cannot connect, hold G0 while pressing reset and try again.
 
-The Cardputer's screen shows what the bridge is doing, on five pages. Any
-key on its keyboard goes to the next page; `1` to `5` jump to one.
+The Cardputer's screen shows what the bridge is doing, on six pages. Any
+key on its keyboard goes to the next page; `1` to `6` jump to one.
 Nothing typed there is sent to the shell. The G0 button steps the
 backlight through 25, 50, 75 and 100% and then off, back to 25% on the
 next press; it starts at 25% at power-up.
@@ -82,6 +82,7 @@ next press; it starts at 25% at power-up.
 | Page | Shows |
 |---|---|
 | Status | the mode (menu, Serial or SSH), the SSH target or whether the computer is attached, the Wi-Fi network with signal and address, the calculator's presence, bytes per second each way |
+| Time | the time and date from the ESP32's clock, green while an NTP server on this network has answered, with the time zone; the network's NTP servers (from DHCP, and the gateway), which answered, and when; when the calculator's clock was last set. See [the clock](terminal.md#the-clock) |
 | Link | a table of bytes and frames: to and from the calculator and everything on the line (acknowledgements and framing too), each with its rate; frames sent again, bad frames, dropped output; bytes whose handshake failed; time since the last byte, uptime |
 | Memory | the ESP32's free heap, the least it has been since power-up, its largest free block, the loop task's least free stack, the sketch's size in flash; the calculator's free RAM and handles and its archive memory, as it last sent them, with how long ago that was |
 | Log | the last events with the time since power-up: mode changes, Wi-Fi and SSH messages, the calculator or computer coming and going |

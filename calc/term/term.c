@@ -5,6 +5,8 @@
 // of the link layer in link/src/tlink.c, which is built into this program.
 // The other end is the ESP32 running esp32/esp32_tilink_term, which the menu
 // tells where to carry the bytes: to its USB serial port or to an SSH host.
+// It also sets the calculator's clock, when an NTP server on its network has
+// told it the time.
 //
 // Keys in a session:
 //   diamond + letter   Ctrl + letter
@@ -694,6 +696,16 @@ static void linkTransmit(unsigned long now)
   if (n) OSWriteLinkBlock((char *)buf, n);
 }
 
+// The ESP32's local time, from NTP: the zone first, so that the time is
+// taken as the zone's. The clock is turned on if it was off.
+static void setClock(const unsigned char *t)
+{
+  TimeZone_Set((short)(t[TL_TIME_ZONE] | t[TL_TIME_ZONE + 1] << 8));
+  DateAndTime_Set(t[TL_TIME_YEAR] | t[TL_TIME_YEAR + 1] << 8, t[TL_TIME_MONTH], t[TL_TIME_DAY],
+                  t[TL_TIME_HOUR], t[TL_TIME_MIN], t[TL_TIME_SEC]);
+  if (!IsClockOn()) ClockOn();
+}
+
 // Moves the link along and returns the next frame from the ESP32, with
 // lk.in holding it, or 0 when none has come. While lk.rxOpen is 0 the
 // ESP32's sequenced frames are left: they come again later.
@@ -717,6 +729,7 @@ static short linkNext(void)
       espIdKnown = 1;
       memoryAt = archiveAt = now - ARCHIVE_MS;  // a new link, maybe a new ESP32: all of it at once
     }
+    if (type == TL_TIME && lk.in.len >= TL_TIME_SIZE) setClock(lk.in.data);
     if (type) {
       linkTransmit(now);  // the acknowledgement goes at once
       return type;

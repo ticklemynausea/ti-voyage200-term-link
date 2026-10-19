@@ -16,8 +16,8 @@ const uint32_t KEYS_MS = 50;
 const uint32_t RATE_MS = 1000;
 const uint32_t BATTERY_MS = 5000;
 
-const int PAGES = 5;
-const char *const PAGE_NAMES[PAGES] = {"STATUS", "LINK", "MEMORY", "LOG", "BUILD"};
+const int PAGES = 6;
+const char *const PAGE_NAMES[PAGES] = {"STATUS", "TIME", "LINK", "MEMORY", "LOG", "BUILD"};
 
 // The page is text: up to MAX_LINES lines, each in the small font (40
 // columns) or the same font doubled (20 columns). A page is only pushed to
@@ -133,6 +133,52 @@ void statusPage(const Status &s) {
   else if (!s.calcHeard) add(1, TFT_ORANGE, "calculator: waiting");
   else add(1, TFT_WHITE, "calculator: connected");
   add(1, TFT_LIGHTGREY, "to calc %s B/s   from calc %s B/s", to, from);
+}
+
+// The ESP32's clock, the NTP servers of the network joined, and when the
+// calculator's clock was set. The time is green while a server on this
+// network has answered, orange when it came from elsewhere (an earlier
+// network, before a restart).
+void timePage(const Status &s) {
+  const Status::ClockInfo &c = s.clock;
+  time_t now = time(nullptr);
+  if (now < 1700000000) {
+    add(2, TFT_ORANGE, "not set");
+    add(1, TFT_BLACK, "");
+  } else {
+    struct tm t;
+    localtime_r(&now, &t);
+    char day[LINE_CHARS];
+    strftime(day, sizeof(day), "%a %e %b %Y  %Z", &t);
+    add(2, c.synced ? TFT_GREEN : TFT_ORANGE, "%02d:%02d:%02d", t.tm_hour, t.tm_min, t.tm_sec);
+    add(1, TFT_LIGHTGREY, "%s", day);
+  }
+  add(1, TFT_LIGHTGREY, "zone %s", c.tz.c_str());  // the name, or the POSIX string
+  add(1, TFT_BLACK, "");
+
+  add(1, TFT_WHITE, "NTP on this network");
+  if (!c.serverCount) add(1, TFT_ORANGE, " none: the time is not set");
+  for (uint8_t i = 0; i < c.serverCount; i++) {
+    const Clock::Server &server = c.servers[i];
+    add(1, server.answered ? TFT_GREEN : TFT_LIGHTGREY, " %-8s %s%s", server.source, server.address.c_str(),
+        server.answered ? "" : "  no answer");
+  }
+  char ago[16];
+  if (c.synced) {
+    uint32_t seconds = (millis() - c.syncedAt) / 1000;
+    clock(ago, sizeof(ago), seconds);
+    add(1, seconds > 2 * 3600 ? TFT_ORANGE : TFT_LIGHTGREY, " last answer %s ago", ago);
+  } else if (c.serverCount) {
+    add(1, TFT_ORANGE, " no answer yet");
+  }
+  add(1, TFT_BLACK, "");
+
+  if (c.calcSet) {
+    clock(ago, sizeof(ago), (millis() - c.calcSetAt) / 1000);
+    add(1, TFT_WHITE, "calculator set %s ago", ago);
+  } else {
+    add(1, TFT_LIGHTGREY, "calculator not set yet");
+  }
 }
 
 // The frames' contents to and from the calculator, everything on the line
@@ -323,9 +369,10 @@ void update(const Status &s) {
   lineCount = 0;
   add(1, TFT_WHITE, "%-6s %d/%d                  battery %3d%%", PAGE_NAMES[page], page + 1, PAGES, battery);
   if (page == 0) statusPage(s);
-  else if (page == 1) linkPage(s);
-  else if (page == 2) memoryPage(s);
-  else if (page == 3) logPage();
+  else if (page == 1) timePage(s);
+  else if (page == 2) linkPage(s);
+  else if (page == 3) memoryPage(s);
+  else if (page == 4) logPage();
   else buildPage();
 
   if (forced || lineCount != drawnCount || memcmp(lines, drawn, sizeof(Line) * lineCount)) {

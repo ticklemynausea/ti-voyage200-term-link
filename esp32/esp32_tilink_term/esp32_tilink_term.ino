@@ -33,7 +33,9 @@
  * calculator's screen, in numbered pieces. With a computer attached (paced
  * raw mode, below) it is passed on as 0x1E 'p' and the bytes. MEM frames
  * carry the calculator's free memory, every few seconds, for the
- * Cardputer's memory page.
+ * Cardputer's memory page. A TIME frame sets the calculator's clock, after
+ * each HELLO and each NTP answer, but only once a server on the network
+ * joined has answered (see Clock.h).
  *
  * The calculator starts the link with HELLO, which the answer carries the
  * ESP32's id in: two letters picked at power-up, by which the calculator
@@ -71,12 +73,13 @@
  * again when the host is back.
  *
  * Serial Monitor: 115200 baud, newline line ending.
- * Needs TiLink.h / TiLink.cpp and Ssh.h / Ssh.cpp in the same folder, the
+ * Needs TiLink.h / TiLink.cpp, Ssh.h / Ssh.cpp and Clock.h / Clock.cpp in the same folder, the
  * LibSSH-ESP32 library, and link/ as a library (the Makefile passes it).
  */
 #include <Preferences.h>
 #include <WiFi.h>
 #include <tlink.h>
+#include "Clock.h"
 #include "Display.h"
 #include "Ssh.h"
 #include "TiLink.h"
@@ -103,7 +106,7 @@ const unsigned short RTO_MS = 500;
 tl_link lk;
 
 const char HELP[] =
-  "Commands: /stats | /burst [bytes] | /raw | /settings | /pubkey | /forgethost [n] | /help   (anything else is sent)";
+  "Commands: /stats | /burst [bytes] | /raw | /settings | /pubkey | /forgethost [n] | /tz [zone] | /help   (anything else is sent)";
 
 // Internal pull-ups on: with the calculator unplugged the lines then read as
 // idle instead of floating, which would otherwise arrive as garbage bytes.
@@ -199,6 +202,13 @@ uint32_t shotLastMs = 0;
 
 Display::Status::CalcMemory calcMemory = {};
 
+// The calculator's clock is set after each HELLO and each NTP answer, when
+// the time is known (see Clock.h).
+bool timeDue = false;
+bool calcTimeSet = false;
+uint32_t calcTimeSetAt = 0;
+const char DEFAULT_TZ[] = "UTC";
+
 // Pacing of raw mode, see the top of the file.
 const uint8_t ACK_EVERY = 32;
 bool paced = false;
@@ -227,6 +237,12 @@ void showStatus() {
   s.dropped = {droppedBytes, droppedFrames};
   s.handshakeErrors = ti.errors;
   s.calcMemory = calcMemory;
+  s.clock.synced = Clock::synced();
+  s.clock.syncedAt = Clock::syncedAt();
+  s.clock.tz = Clock::zoneSetting();
+  s.clock.serverCount = Clock::servers(s.clock.servers);
+  s.clock.calcSet = calcTimeSet;
+  s.clock.calcSetAt = calcTimeSetAt;
   uint8_t hostsSet = 0;
   for (const Host &h : hosts) hostsSet += h.isSet();
   if (backend == BACKEND_SSH) s.sshTarget = hostLabel(slot);
@@ -316,6 +332,7 @@ void takeFrame(short type) {
     takeMemory(f);
   } else if (type == TL_HELLO) {
     outLen = 0;  // output for the link before this one
+    timeDue = true;
   }
   lk.hold = shotLeft != 0;  // the link is the calculator's while a screenshot arrives
 }
@@ -631,6 +648,7 @@ void loadSettings() {
     hosts[0].port = prefs.getUShort("port", 22);
     hosts[0].user = prefs.getString("user", "");
   }
+  if (!Clock::setZone(prefs.getString("tz", DEFAULT_TZ))) Clock::setZone(DEFAULT_TZ);
   prefs.end();
 }
 
@@ -1050,6 +1068,11 @@ void burst(uint32_t bytes) {
                 (unsigned long)(droppedBytes - dropped0), (unsigned long)(lk.bytesRecv - fromCalc0));
 }
 
+void printZone() {
+  if (Clock::zoneName().length()) Serial.printf("Time zone %s (%s)\n", Clock::zoneName().c_str(), Clock::zone().c_str());
+  else Serial.printf("Time zone %s\n", Clock::zone().c_str());
+}
+
 void handleLine(const String &text) {
   if (!text.startsWith("/")) {
     if (sendText(text.c_str())) sendText("\r\n");
@@ -1069,6 +1092,14 @@ void handleLine(const String &text) {
     }
     if (Ssh::hasKey()) Serial.printf("SSH key %s\n", Ssh::keyFingerprint().c_str());
     else Serial.println("No SSH key");
+    printZone();
+    Clock::Server servers[2];
+    uint8_t n = Clock::servers(servers);
+    if (!n) Serial.println("No NTP server on this network");
+    for (uint8_t i = 0; i < n; i++) {
+      Serial.printf("NTP server %s (%s)%s\n", servers[i].address.c_str(), servers[i].source,
+                    servers[i].answered ? ", answering" : "");
+    }
   } else if (text == "/pubkey") {
     if (Ssh::hasKey()) Serial.println(Ssh::publicKeyLine());
     else Serial.println("No SSH key. The calculator's Settings menu makes one.");
@@ -1080,6 +1111,28 @@ void handleLine(const String &text) {
       for (uint8_t n = 1; n <= MAX_HOSTS; n++) if (!only || only == n) Ssh::forgetHostKey(n);
       Serial.println(only ? "That SSH host's remembered key is forgotten; the next connection stores it anew."
                           : "Every SSH host's remembered key is forgotten; the next connections store them anew.");
+    }
+  } else if (text.startsWith("/tz")) {
+    String zone = text.substring(3);
+    zone.trim();
+    if (!zone.length()) {
+      printZone();
+      Serial.println("Set it with /tz and a zone's name or city, such as /tz Europe/Lisbon or /tz lisbon.");
+    } else if (Clock::setZone(zone)) {
+      Preferences prefs;
+      prefs.begin(PREFS_NAMESPACE, false);
+      prefs.putString("tz", Clock::zoneSetting());
+      prefs.end();
+      timeDue = true;
+      printZone();
+    } else {
+      // A city in several zones, or part of a name: the zones that have it.
+      if (!Clock::findZones(zone, [](const char *) {})) {
+        Serial.printf("No zone has \"%s\" in its name.\n", zone.c_str());
+      } else {
+        Serial.printf("Which one? The zones with \"%s\" in their name:\n", zone.c_str());
+        Clock::findZones(zone, [](const char *name) { Serial.printf("  %s\n", name); });
+      }
     }
   } else if (text == "/raw") {
     Serial.println("Raw mode: every byte now passes through. Reset the ESP32 to leave it.");
@@ -1099,6 +1152,7 @@ void setup() {
   Display::begin();  // before the link: the screen's library sets up pins of its own
   ti.begin();
   loadSettings();
+  Clock::begin();
   for (char &c : bootId) c = 'A' + (esp_random() ^ micros()) % 26;
   tl_init(&lk, TL_RESPONDER, RTO_MS, 0);
   tl_set_id(&lk, (const unsigned char *)bootId, sizeof(bootId));
@@ -1188,9 +1242,37 @@ void handleHostCommand(char c) {
   if (c == 'e') handleSerialByte((char)CONTROL_MARK);
 }
 
+// Sets the calculator's clock, when there is something to tell it and room
+// to: it never waits, and never holds up the session's output.
+void sendTimeIfDue() {
+  Clock::poll();
+  if (Clock::takeNews()) timeDue = true;
+  if (!timeDue || !Clock::synced() || !lk.started || !calcHeard() || outLen || !tl_window_free(&lk)) return;
+  struct tm t;
+  int16_t zone;
+  if (!Clock::local(t, zone)) return;
+  uint16_t year = t.tm_year + 1900;
+  uint8_t m[TL_TIME_SIZE];
+  m[TL_TIME_YEAR] = year;
+  m[TL_TIME_YEAR + 1] = year >> 8;
+  m[TL_TIME_MONTH] = t.tm_mon + 1;
+  m[TL_TIME_DAY] = t.tm_mday;
+  m[TL_TIME_HOUR] = t.tm_hour;
+  m[TL_TIME_MIN] = t.tm_min;
+  m[TL_TIME_SEC] = t.tm_sec;
+  m[TL_TIME_ZONE] = (uint16_t)zone;
+  m[TL_TIME_ZONE + 1] = (uint16_t)zone >> 8;
+  if (!tl_send(&lk, TL_TIME, m, sizeof(m))) return;
+  timeDue = false;
+  calcTimeSet = true;
+  calcTimeSetAt = millis();
+  Display::log("calculator's clock set");
+}
+
 void loop() {
   pumpLink();
   runPendingCommands();
+  sendTimeIfDue();
   // Like the serial port's, the SSH output waits while the calculator is away:
   // unread, it holds the host back, and nothing is lost.
   if (backend == BACKEND_SSH && calcHeard()) pumpSsh();

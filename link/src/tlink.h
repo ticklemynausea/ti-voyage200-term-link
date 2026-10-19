@@ -67,7 +67,8 @@ enum {
   TL_LIST,        /* ESP32 -> calc: list letter, entry number, entry text */
   TL_SHOT,        /* calc -> ESP32: piece number, then that piece of the screen */
   TL_MEM,         /* calc -> ESP32: its free memory, see TL_MEM_SIZE */
-  TL_LAST = TL_MEM
+  TL_TIME,        /* ESP32 -> calc: the local date and time, see TL_TIME_SIZE */
+  TL_LAST = TL_TIME
 };
 
 /* TL_MEM's payload: unsigned numbers, least significant byte first. */
@@ -77,6 +78,17 @@ enum {
 #define TL_MEM_GC 10        /* 4: archive memory a garbage collection would free */
 #define TL_MEM_ARCHIVED 14  /* 4: archive memory in use */
 #define TL_MEM_SIZE 18
+
+/* TL_TIME's payload: the local time from NTP, numbers least significant byte
+   first. The zone is in minutes east of Greenwich, as the AMS keeps it. */
+#define TL_TIME_YEAR 0      /* 2 bytes */
+#define TL_TIME_MONTH 2     /* 1 to 12 */
+#define TL_TIME_DAY 3       /* 1 to 31 */
+#define TL_TIME_HOUR 4
+#define TL_TIME_MIN 5
+#define TL_TIME_SEC 6
+#define TL_TIME_ZONE 7      /* 2 bytes, signed */
+#define TL_TIME_SIZE 9
 
 enum { TL_INITIATOR, TL_RESPONDER };
 

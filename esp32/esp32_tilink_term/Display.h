@@ -1,8 +1,8 @@
 /*
  * Display.h - status pages on the M5Stack Cardputer's screen
  *
- * Five pages (status, link, memory, log, build), switched from the
- * Cardputer's keyboard: any key goes to the next page, 1 to 5 jump to one. Nothing
+ * Six pages (status, time, link, memory, log, build), switched from the
+ * Cardputer's keyboard: any key goes to the next page, 1 to 6 jump to one. Nothing
  * typed there is sent anywhere. The G0 button steps the backlight through
  * 0, 25, 50, 75 and 100%.
  *
@@ -11,6 +11,7 @@
  */
 #pragma once
 #include <Arduino.h>
+#include "Clock.h"
 
 namespace Display {
 
@@ -43,6 +44,17 @@ struct Status {
     uint32_t archiveGc;  // archive memory a garbage collection would free
     uint32_t archived;   // archive memory in use
   } calcMemory;
+  // The time page's: NTP, and the calculator's clock. The time itself is
+  // read from the ESP32's clock.
+  struct ClockInfo {
+    bool synced;          // a server on this network has answered
+    uint32_t syncedAt;    // millis() of its last answer
+    String tz;
+    uint8_t serverCount;
+    Clock::Server servers[2];
+    bool calcSet;         // the calculator's clock has been set
+    uint32_t calcSetAt;   // millis() when
+  } clock;
   String sshTarget;       // user@host, empty when not set up
   String wifiName;        // empty when not set up
   bool wifiUp;
