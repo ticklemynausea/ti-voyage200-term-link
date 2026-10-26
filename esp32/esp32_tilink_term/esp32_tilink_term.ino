@@ -833,7 +833,6 @@ void showSshKey() {
 }
 
 void makeSshKey() {
-  sayToCalc("Making a key...");
   if (!Ssh::makeKey(sayToCalc)) return;
   showSshKey();
   sayToCalc("No host knows it yet: Settings, F4 copies it to the host.");

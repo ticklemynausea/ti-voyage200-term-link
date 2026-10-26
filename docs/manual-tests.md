@@ -152,6 +152,14 @@ numbers every 5 s while `term` runs.
 | M03 |  | Quit `term` (2nd+ESC in the menu), then wait 30 s. | "s ago" keeps growing; the numbers stay as they were. Start `term` again: back to at most 5 s. |
 | M04 |  | With `term` running, reset the ESP32. | The calculator's rows come back within a few seconds of the ESP32 starting, without waiting for the minute the archive takes. |
 
+## The SSH key
+
+| ID | Result | Steps | Expected |
+|---|---|---|---|
+| Y01 |  | With Wi-Fi not joined (no network in range, or none set), Settings, F3, make or replace the key. | "Join a Wi-Fi network first…", and no key is made: an old key keeps its fingerprint. |
+| Y02 |  | With Wi-Fi joined, Settings, F3, replace the key twice. | "Making a key...", then a new fingerprint each time. |
+| Y03 |  | Then F4 to copy it to a host, and SSH to that host. | The login works without a password. |
+
 ## The clock
 
 The ESP32 sets the calculator's clock from an NTP server on its own

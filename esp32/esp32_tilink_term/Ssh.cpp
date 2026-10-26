@@ -7,6 +7,10 @@
 #include <WiFi.h>
 #include "libssh_esp32.h"
 #include <libssh/libssh.h>
+#include <mbedtls/ctr_drbg.h>
+
+// libssh's random numbers, in LibSSH-ESP32's getrandom_mbedcrypto.c.
+extern "C" mbedtls_ctr_drbg_context ssh_mbedtls_ctr_drbg;
 
 namespace {
 
@@ -187,10 +191,22 @@ bool Ssh::hasKey() {
 }
 
 bool Ssh::makeKey(SayFn say) {
+  // The key's secret comes from libssh's generator, seeded from the ESP32's
+  // random number hardware, which is only truly random while the radio is
+  // on. So a key is only made with Wi-Fi up, and the generator takes a new
+  // seed first: the one it took when libssh started may be from a time
+  // the radio was off.
+  if (WiFi.status() != WL_CONNECTED) {
+    say("Join a Wi-Fi network first: the key's randomness");
+    say("needs the radio on. No key was made.");
+    return false;
+  }
+  say("Making a key...");
   startLibrary();
   ssh_key key = nullptr;
   char *text = nullptr;
-  if (ssh_pki_generate(SSH_KEYTYPE_ED25519, 0, &key) != SSH_OK) {
+  if (mbedtls_ctr_drbg_reseed(&ssh_mbedtls_ctr_drbg, nullptr, 0) != 0 ||
+      ssh_pki_generate(SSH_KEYTYPE_ED25519, 0, &key) != SSH_OK) {
     say("Could not make a key.");
     return false;
   }

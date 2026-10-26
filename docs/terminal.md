@@ -55,7 +55,7 @@ Settings:
 |---|---|
 | F1 | Wi-Fi: sets, changes or removes one of the networks |
 | F2 | SSH hosts: sets, changes or removes one of the hosts |
-| F3 | SSH key: makes the ESP32's own key, replaces it or removes it |
+| F3 | SSH key: makes the ESP32's own key, replaces it or removes it. A key is made only with Wi-Fi joined: its secret comes from the ESP32's random number hardware, which is truly random only while the radio is on, and the generator takes a fresh seed from it first |
 | F4 | Copy the key: puts the public key on one of the hosts, after asking |
 
 The ESP32 keeps up to eight SSH hosts, one for each of the keys F1 to F8.

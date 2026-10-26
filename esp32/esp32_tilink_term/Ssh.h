@@ -53,7 +53,7 @@ void forgetHostKey(uint8_t slot);
 
 // The ESP32's own key pair.
 bool hasKey();
-bool makeKey(SayFn say);  // replaces the one there is
+bool makeKey(SayFn say);  // replaces the one there is; only with Wi-Fi up
 void forgetKey();
 String keyFingerprint();  // "SHA256:...", empty without a key
 String publicKeyLine();   // as it goes in authorized_keys, empty without a key
