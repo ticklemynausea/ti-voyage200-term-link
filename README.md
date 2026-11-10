@@ -7,8 +7,8 @@
 A **TI Voyage 200** graphing calculator as a terminal to real computers. An
 ESP32 (Arduino framework) sits on the calculator's 2.5 mm link port and does the networking;
 the calculator draws the text and reads the keys. The ESP32 is either an
-M5Stack Stamp S3 on a breadboard or an M5Stack Cardputer, whose battery and
-screen make the setup portable.
+M5Stack Stamp S3 on a breadboard, or an M5Stack Cardputer or StickS3, whose
+battery and screen make the setup portable.
 
 ## Demo videos
 
@@ -79,7 +79,8 @@ own kinds ([how the pieces talk](docs/terminal.md#how-the-pieces-talk)).
 
 - A TI Voyage 200 (the TI-89 / TI-92 Plus family should behave the same
   way, untested).
-- An ESP32: an M5Stack Stamp S3 on a breadboard, or an M5Stack Cardputer.
+- An ESP32: an M5Stack Stamp S3 on a breadboard, an M5Stack Cardputer, or
+  an M5Stack StickS3.
 - A 2.5 mm stereo (TRS) pigtail cable for the link port, and two 220 ohm
   resistors.
 - A link cable for the computer (SilverLink), to send the program to the

@@ -1,7 +1,16 @@
-#if defined(ARDUINO_M5STACK_CARDPUTER)
-
 #include "Display.h"
+
+#if defined(DISPLAY_HAS_SCREEN)
+
+// The Cardputer's library adds its keyboard to M5Unified's M5; the rest
+// (screen, buttons, battery) is the same on both boards.
+#if defined(ARDUINO_M5STACK_CARDPUTER)
 #include <M5Cardputer.h>
+#define DEVICE M5Cardputer
+#else
+#include <M5Unified.h>
+#define DEVICE M5
+#endif
 
 // In Version.cpp.
 extern const char BUILD_VERSION[];
@@ -40,7 +49,7 @@ struct LogLine {
 LogLine logLines[LOG_LINES];
 int logCount;
 
-M5Canvas canvas(&M5Cardputer.Display);
+M5Canvas canvas(&DEVICE.Display);
 int page;
 bool forced = true;
 uint32_t lastDraw, lastKeys, lastRate, lastBattery, lastByteAt, seenBytes;
@@ -57,7 +66,8 @@ struct Rate {
 Rate toRate, fromRate, outRate, inRate;
 int battery = -1;
 
-// The G0 button steps the backlight through these, then back to off.
+// The backlight button (the Cardputer's G0, the StickS3's side button)
+// steps the backlight through these, then back to off.
 const uint8_t BRIGHTNESS[] = {0, 64, 128, 191, 255};  // 0 to 100% in quarters
 const int BRIGHTNESS_STEPS = sizeof(BRIGHTNESS);
 int brightness = 1;  // 25%
@@ -302,12 +312,16 @@ void nextPage(int to) {
   forced = true;
 }
 
+void stepBrightness() {
+  brightness = (brightness + 1) % BRIGHTNESS_STEPS;
+  DEVICE.Display.setBrightness(BRIGHTNESS[brightness]);
+}
+
+#if defined(ARDUINO_M5STACK_CARDPUTER)
+
 void readKeys() {
   M5Cardputer.update();
-  if (M5Cardputer.BtnA.wasPressed()) {
-    brightness = (brightness + 1) % BRIGHTNESS_STEPS;
-    M5Cardputer.Display.setBrightness(BRIGHTNESS[brightness]);
-  }
+  if (M5Cardputer.BtnA.wasPressed()) stepBrightness();
   if (!M5Cardputer.Keyboard.isChange() || !M5Cardputer.Keyboard.isPressed()) return;
   Keyboard_Class::KeysState state = M5Cardputer.Keyboard.keysState();
   for (char c : state.word) {
@@ -319,20 +333,35 @@ void readKeys() {
   nextPage(page + 1);
 }
 
+#else
+
+// The StickS3: BtnA is the big front button, BtnB the one on the side.
+void readKeys() {
+  M5.update();
+  if (M5.BtnA.wasPressed()) nextPage(page + 1);
+  if (M5.BtnB.wasPressed()) stepBrightness();
+}
+
+#endif
+
 }  // namespace
 
 void begin() {
   auto cfg = M5.config();
-  // Only the screen, the keyboard and the battery gauge are used.
+  // Only the screen, the keys and the battery gauge are used.
   cfg.internal_imu = false;
   cfg.internal_rtc = false;
   cfg.internal_mic = false;
   cfg.internal_spk = false;
+#if defined(ARDUINO_M5STACK_CARDPUTER)
   M5Cardputer.begin(cfg, true);
-  M5Cardputer.Display.setRotation(1);
-  M5Cardputer.Display.setBrightness(BRIGHTNESS[brightness]);
+#else
+  M5.begin(cfg);
+#endif
+  DEVICE.Display.setRotation(1);
+  DEVICE.Display.setBrightness(BRIGHTNESS[brightness]);
   canvas.setColorDepth(8);
-  canvas.createSprite(M5Cardputer.Display.width(), M5Cardputer.Display.height());
+  canvas.createSprite(DEVICE.Display.width(), DEVICE.Display.height());
   canvas.setFont(&fonts::Font0);
   canvas.setTextWrap(false);
 }
@@ -362,7 +391,7 @@ void update(const Status &s) {
     lastRate = now;
   }
   if (battery < 0 || now - lastBattery >= BATTERY_MS) {
-    battery = M5Cardputer.Power.getBatteryLevel();
+    battery = DEVICE.Power.getBatteryLevel();
     lastBattery = now;
   }
 

@@ -11,8 +11,8 @@
 #   make link:test           run the link layer (link/) on this computer, over
 #                            a simulated line that garbles, drops and slips
 #
-# For the ESP32 the target starts with the board, esp32_stamps3 or
-# esp32_cardputer, then the sketch, then build or flash:
+# For the ESP32 the target starts with the board, esp32_stamps3,
+# esp32_cardputer or esp32_sticks3, then the sketch, then build or flash:
 #
 #   make esp32_stamps3:term:build        the terminal bridge, esp32_tilink_term
 #   make esp32_stamps3:term:flash
@@ -22,6 +22,10 @@
 #   make esp32_cardputer:term:flash
 #   make esp32_cardputer:linetest:build
 #   make esp32_cardputer:linetest:flash
+#   make esp32_sticks3:term:build
+#   make esp32_sticks3:term:flash
+#   make esp32_sticks3:linetest:build
+#   make esp32_sticks3:linetest:flash
 #
 # build compiles into build/<board>-<sketch>/ and flashes nothing; the
 # object files stay in its cache/ folder, one per board, so a second build
@@ -42,6 +46,9 @@ CARDPUTER_FQBN ?= esp32:esp32:m5stack_cardputer
 # the flash size said too: otherwise the bootloader assumes 4 MB and refuses
 # the partition table.
 CARDPUTER_TERM_FQBN ?= $(CARDPUTER_FQBN):FlashSize=8M,PartitionScheme=default_8MB
+# The StickS3 is only in M5Stack's own board package (m5stack:esp32 3.3 or
+# later), not in Espressif's.
+STICKS3_FQBN ?= m5stack:esp32:m5stack_sticks3
 
 # The commit the terminal sketch is built from, with a + if there were
 # changes not yet committed, and the time: $(call version_h,board) writes them
@@ -107,6 +114,22 @@ esp32_cardputer\:linetest\:flash:
 	$(need_port)
 	$(call upload,$(CARDPUTER_FQBN),cardputer,linetest)
 
+esp32_sticks3\:term\:build:
+	$(call version_h,sticks3)
+	$(call compile,$(STICKS3_FQBN),sticks3,term)
+
+esp32_sticks3\:term\:flash:
+	$(call version_h,sticks3)
+	$(need_port)
+	$(call upload,$(STICKS3_FQBN),sticks3,term)
+
+esp32_sticks3\:linetest\:build:
+	$(call compile,$(STICKS3_FQBN),sticks3,linetest)
+
+esp32_sticks3\:linetest\:flash:
+	$(need_port)
+	$(call upload,$(STICKS3_FQBN),sticks3,linetest)
+
 shell:
 	$(need_port)
 	python3 shell/shell.py --port $(PORT) $(if $(MIRROR),--mirror) $(CMD)
@@ -119,4 +142,6 @@ screenshots:
 	esp32_stamps3\:term\:build esp32_stamps3\:term\:flash \
 	esp32_stamps3\:linetest\:build esp32_stamps3\:linetest\:flash \
 	esp32_cardputer\:term\:build esp32_cardputer\:term\:flash \
-	esp32_cardputer\:linetest\:build esp32_cardputer\:linetest\:flash
+	esp32_cardputer\:linetest\:build esp32_cardputer\:linetest\:flash \
+	esp32_sticks3\:term\:build esp32_sticks3\:term\:flash \
+	esp32_sticks3\:linetest\:build esp32_sticks3\:linetest\:flash

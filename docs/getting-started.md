@@ -14,8 +14,10 @@ minimums.
 | A TI link cable for the computer (SilverLink USB) | the same; `tilp` talks through it | |
 | [arduino-cli](https://arduino.github.io/arduino-cli/) | compiling and flashing the ESP32 sketches (the Arduino IDE works too) | 1.5.1 |
 | ESP32 board package (`esp32:esp32`) | the board definitions | 3.2.0 |
+| M5Stack board package (`m5stack:esp32`) | the StickS3's board definition, in the StickS3 build only | 3.3.10 |
 | [LibSSH-ESP32](https://github.com/ewpa/LibSSH-ESP32) library | SSH in the terminal sketch | 5.10.0 |
 | [M5Cardputer](https://github.com/m5stack/M5Cardputer) library | the status screen, in the Cardputer build only | 1.1.1 |
+| [M5Unified](https://github.com/m5stack/M5Unified) library | the status screen, in the StickS3 build (M5Cardputer brings it too) | 0.2.25 |
 | Python 3 | the font converter and `shell/shell.py`; standard library only | 3.9 |
 | `make` | the shortcuts below | |
 
@@ -35,17 +37,17 @@ hardware is listed in [docs/hardware.md](hardware.md).
 
 ## Quick start: the terminal
 
-The ESP32 side comes in two forms. Both run the same sketch, which picks
+The ESP32 side comes in three forms. All run the same sketch, which picks
 its pins from the board it is built for:
 
-| | Stamp S3 on a breadboard | Cardputer |
-|---|---|---|
-| Calculator connects to | G1 and G5, on jumper wires | the Grove port (G2 and G1) |
-| Power | USB | its battery, or USB |
-| Screen | none | status pages: mode, Wi-Fi, link, memory, log |
-| Extra library | none | M5Cardputer |
-| Build and flash | `make esp32_stamps3:term:flash` | `make esp32_cardputer:term:flash`, or `make esp32_cardputer:term:build` for a file that M5 Launcher installs |
-| Wiring | [hardware.md](hardware.md#wiring-stamp-s3) | [hardware.md](hardware.md#m5stack-cardputer) |
+| | Stamp S3 on a breadboard | Cardputer | StickS3 |
+|---|---|---|---|
+| Calculator connects to | G1 and G5, on jumper wires | the Grove port (G2 and G1) | the Grove port (G9 and G10) |
+| Power | USB | its battery, or USB | its battery, or USB |
+| Screen | none | status pages: mode, Wi-Fi, link, memory, log | the same pages |
+| Extra library | none | M5Cardputer | M5Unified, and the M5Stack board package |
+| Build and flash | `make esp32_stamps3:term:flash` | `make esp32_cardputer:term:flash`, or `make esp32_cardputer:term:build` for a file that M5 Launcher installs | `make esp32_sticks3:term:flash` |
+| Wiring | [hardware.md](hardware.md#wiring-stamp-s3) | [hardware.md](hardware.md#m5stack-cardputer) | [hardware.md](hardware.md#m5stack-sticks3) |
 
 Wire one of them to the link port. With the prerequisites above in place:
 

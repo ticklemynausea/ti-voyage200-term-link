@@ -1,10 +1,11 @@
 /*
- * Display.h - status pages on the M5Stack Cardputer's screen
+ * Display.h - status pages on the screen of an M5Stack Cardputer or StickS3
  *
- * Six pages (status, time, link, memory, log, build), switched from the
- * Cardputer's keyboard: any key goes to the next page, 1 to 6 jump to one. Nothing
- * typed there is sent anywhere. The G0 button steps the backlight through
- * 0, 25, 50, 75 and 100%.
+ * Six pages (status, time, link, memory, log, build). On the Cardputer
+ * they are switched from its keyboard: any key goes to the next page, 1 to
+ * 6 jump to one. Nothing typed there is sent anywhere. Its G0 button steps
+ * the backlight through 0, 25, 50, 75 and 100%. On the StickS3 the front
+ * button goes to the next page and the side button steps the backlight.
  *
  * Built for any other board, everything here is empty, and the sketch needs
  * no display library.
@@ -62,7 +63,8 @@ struct Status {
   String ip;
 };
 
-#if defined(ARDUINO_M5STACK_CARDPUTER)
+#if defined(ARDUINO_M5STACK_CARDPUTER) || defined(ARDUINO_M5STACK_STICKS3)
+#define DISPLAY_HAS_SCREEN
 
 void begin();
 

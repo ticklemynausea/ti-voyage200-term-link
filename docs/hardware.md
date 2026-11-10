@@ -9,6 +9,9 @@
   - M5Stack Cardputer, which has a Stamp S3 inside plus a battery, a screen
     and a keyboard: [wiring](#m5stack-cardputer). The terminal and the
     wiring check are built for it.
+  - M5Stack StickS3 (ESP32-S3), with a battery and the same screen as the
+    Cardputer, through its Grove port: [wiring](#m5stack-sticks3). The
+    terminal and the wiring check are built for it.
 
   Other ESP32 boards should work with different pins.
 - 2.5 mm stereo (TRS) pigtail cables: one per calculator. The plug's moulded
@@ -100,13 +103,48 @@ plug does.
 Tried on a Cardputer: the pages show on its screen and the calculator
 connects through the Grove cable.
 
+## M5Stack StickS3
+
+The terminal and wiring-check sketches also build for the StickS3, with
+the calculator on its Grove port, wired the same way as the Cardputer's:
+
+| Grove pin | Grove wire | Through | Pigtail wire | Plug part |
+|---|---|---|---|---|
+| G9 | yellow | 220 ohm | red | Tip |
+| G10 | white | 220 ohm | white | Ring |
+| GND | black | direct | black | Sleeve |
+| 5 V | red | not connected | | |
+
+G9 and G10 are 3.3 V pins, so again no level shifter for a calculator
+whose lines idle at 3.3 V.
+
+Its screen shows the same six pages as the Cardputer's, battery level
+included. With no keyboard, the big front button goes to the next page and
+the side button steps the backlight as G0 does on the Cardputer.
+
+The board is in M5Stack's own board package, not Espressif's, installed
+once with:
+
+```sh
+arduino-cli core install m5stack:esp32 \
+  --additional-urls https://static-cdn.m5stack.com/resource/arduino/package_m5stack_index.json
+```
+
+Then `make esp32_sticks3:term:flash` or `make esp32_sticks3:linetest:flash`
+(`build` instead of `flash` compiles into `build/sticks3-term/` only).
+The screen needs the M5Unified library: `arduino-cli lib install M5Unified`
+(M5Cardputer installs it too).
+
+Not yet tried on a StickS3: the builds compile, and the pins are the Grove
+port's as M5Stack's board package names them.
+
 ## Wiring check
 
 `esp32/esp32_tilink_linetest/` prints the tip and ring levels whenever they
 change, plus a periodic heartbeat. It never drives the lines. Use it before
 any experiment to check the wiring and the ground connection.
-`make esp32_stamps3:linetest:flash` or `make esp32_cardputer:linetest:flash`
-builds and flashes it.
+`make esp32_stamps3:linetest:flash`, `make esp32_cardputer:linetest:flash`
+or `make esp32_sticks3:linetest:flash` builds and flashes it.
 
 ## Building and flashing
 
