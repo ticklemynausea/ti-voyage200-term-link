@@ -579,6 +579,15 @@ bool tryNetwork(uint8_t index, Ssh::SayFn say) {
   return true;
 }
 
+// Scans for networks. A join still being tried makes a scan fail at once,
+// so one that has not succeeded is given up first; a joined network is
+// kept.
+int scanWifi() {
+  if (WiFi.status() != WL_CONNECTED) WiFi.disconnect();
+  WiFi.mode(WIFI_STA);
+  return WiFi.scanNetworks();
+}
+
 // Makes sure a stored network is joined. One that is joined already is kept.
 // Otherwise the one joined last is tried first and then the others, leaving
 // out those a scan does not show; if it shows none of them, all are tried,
@@ -597,9 +606,7 @@ bool joinKnownWifi(Ssh::SayFn say) {
   bool anySeen = false;
   if (count > 1) {  // an only network needs no looking for
     say("Looking for a known Wi-Fi network...");
-    WiFi.disconnect();  // a join still being tried would make the scan fail
-    WiFi.mode(WIFI_STA);
-    int found = WiFi.scanNetworks();
+    int found = scanWifi();
     for (int i = 0; i < found; i++) {
       int known = knownNetwork(WiFi.SSID(i));
       if (known >= 0) anySeen = seen[known] = true;
@@ -744,8 +751,7 @@ void editWifi() {
   WifiNetwork edited = current;
   sayToCalc("ENTER keeps the value in brackets.");
   sayToCalc("Looking for networks...");
-  WiFi.mode(WIFI_STA);
-  int found = WiFi.scanNetworks();
+  int found = scanWifi();
   if (found > 9) found = 9;
   for (int i = 0; i < found; i++) {
     String line = String(" ") + (i + 1) + "  " + WiFi.SSID(i) + "  (" + WiFi.RSSI(i) + " dBm)";
